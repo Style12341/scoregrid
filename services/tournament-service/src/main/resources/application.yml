@@ -3,8 +3,11 @@ spring:
     name: tournament-service
 
   datasource:
-    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5434/scoregrid_tournament}
-    username: ${SPRING_DATASOURCE_USERNAME:scoregrid}
+    # Defaults target the shared local Postgres from compose (host port 5433),
+    # using this service's own role. Start it with:
+    #   docker compose up -d postgres
+    url: ${SPRING_DATASOURCE_URL:jdbc:postgresql://localhost:5433/scoregrid_tournament}
+    username: ${SPRING_DATASOURCE_USERNAME:tournament_service}
     password: ${SPRING_DATASOURCE_PASSWORD:scoregrid}
 
   jpa:
@@ -39,7 +42,7 @@ server:
 
 scoregrid:
   jwt:
-    secret: ${SCOREGRID_JWT_SECRET}
+    secret: ${SCOREGRID_JWT_SECRET:dev-only-insecure-secret-do-not-deploy-anywhere-real}
     issuer: ${SCOREGRID_JWT_ISSUER:scoregrid-auth}
 
   # External results provider. Off by default — manual result loading is the
@@ -58,6 +61,12 @@ management:
     health:
       probes:
         enabled: true
+      group:
+        # Readiness must fail when the datastore is unreachable. With only
+        # readinessState the container reports healthy while every request
+        # that touches data would fail.
+        readiness:
+          include: readinessState, db
       show-details: always
   health:
     livenessstate:

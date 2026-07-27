@@ -3,12 +3,22 @@ name: scoregrid
 # ─────────────────────────────────────────────────────────────────────────────
 # ScoreGrid — full local environment.
 #
-#   docker compose up -d --build                    core system (11 containers)
+#   docker compose up -d postgres mongodb rabbitmq  infra only — the usual case
+#                                                   when running services from
+#                                                   the IDE or ./mvnw
+#   docker compose up -d --build                    whole system (9 containers)
 #   docker compose --profile observability up -d    + Prometheus, Grafana, Loki
 #
-# Host ports for databases are deliberately offset (5433/5434, 27018/27019) so
-# they never collide with a Postgres or Mongo already installed on your machine.
-# Inside the network, services talk on standard ports via container names.
+# Storage is one Postgres and one MongoDB, each holding one database per
+# service with its own least-privilege login. PRD requirement 6 asks for at
+# least one SQL and one NoSQL store, not one container per service; four
+# database containers cost roughly 400 MB on a laptop to enforce a boundary the
+# engines already enforce (neither Postgres nor Mongo can query across
+# databases). Provisioning lives in infra/postgres/init and infra/mongo/init.
+#
+# Host ports are offset (5433 for Postgres, 27018 for Mongo) so they never
+# collide with an installation already on your machine. Inside the network,
+# services talk on standard ports via container names.
 # ─────────────────────────────────────────────────────────────────────────────
 
 x-service-defaults: &service-defaults
@@ -31,65 +41,68 @@ services:
 
   # ══ Databases ══════════════════════════════════════════════════════════════
 
-  postgres-auth:
+  # One Postgres instance, one database per service, one login role per
+  # database. PRD requirement 6 asks for at least one SQL and one NoSQL store,
+  # not four containers — and PostgreSQL cannot join across databases, so
+  # "a service touches only its own database" stays enforced by the engine.
+  postgres:
     image: postgres:17-alpine
-    container_name: sg-postgres-auth
+    container_name: sg-postgres
     restart: unless-stopped
     networks: [scoregrid]
     environment:
-      POSTGRES_DB: ${POSTGRES_AUTH_DB:-scoregrid_auth}
-      POSTGRES_USER: ${POSTGRES_AUTH_USER:-scoregrid}
-      POSTGRES_PASSWORD: ${POSTGRES_AUTH_PASSWORD:-scoregrid}
+      # Superuser and maintenance database. No service ever uses these: the
+      # init script hands each service its own least-privilege role.
+      POSTGRES_DB: postgres
+      POSTGRES_USER: ${POSTGRES_ROOT_USER:-scoregrid}
+      POSTGRES_PASSWORD: ${POSTGRES_ROOT_PASSWORD:?set POSTGRES_ROOT_PASSWORD in .env}
+      # Consumed by infra/postgres/init/01-init-databases.sh.
+      POSTGRES_AUTH_DB: ${POSTGRES_AUTH_DB:-scoregrid_auth}
+      POSTGRES_AUTH_USER: ${POSTGRES_AUTH_USER:-auth_service}
+      POSTGRES_AUTH_PASSWORD: ${POSTGRES_AUTH_PASSWORD:?set POSTGRES_AUTH_PASSWORD in .env}
+      POSTGRES_TOURNAMENT_DB: ${POSTGRES_TOURNAMENT_DB:-scoregrid_tournament}
+      POSTGRES_TOURNAMENT_USER: ${POSTGRES_TOURNAMENT_USER:-tournament_service}
+      POSTGRES_TOURNAMENT_PASSWORD: ${POSTGRES_TOURNAMENT_PASSWORD:?set POSTGRES_TOURNAMENT_PASSWORD in .env}
     ports: ["5433:5432"]
-    volumes: ["pgdata-auth:/var/lib/postgresql/data"]
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      # Runs once, on an empty data volume. Changing it later needs the volume
+      # dropped: docker compose down -v
+      - ./infra/postgres/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_AUTH_USER:-scoregrid} -d ${POSTGRES_AUTH_DB:-scoregrid_auth}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_ROOT_USER:-scoregrid} -d postgres"]
       interval: 5s
       timeout: 5s
       retries: 10
       start_period: 15s
 
-  postgres-tournament:
-    image: postgres:17-alpine
-    container_name: sg-postgres-tournament
+  # One MongoDB instance, one database per service, one scoped user per
+  # database. Authentication is on: with a shared instance it is the only thing
+  # keeping score-service out of prediction data.
+  mongodb:
+    image: mongo:8
+    container_name: sg-mongodb
     restart: unless-stopped
     networks: [scoregrid]
     environment:
-      POSTGRES_DB: ${POSTGRES_TOURNAMENT_DB:-scoregrid_tournament}
-      POSTGRES_USER: ${POSTGRES_TOURNAMENT_USER:-scoregrid}
-      POSTGRES_PASSWORD: ${POSTGRES_TOURNAMENT_PASSWORD:-scoregrid}
-    ports: ["5434:5432"]
-    volumes: ["pgdata-tournament:/var/lib/postgresql/data"]
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_TOURNAMENT_USER:-scoregrid} -d ${POSTGRES_TOURNAMENT_DB:-scoregrid_tournament}"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 15s
-
-  mongo-prediction:
-    image: mongo:8
-    container_name: sg-mongo-prediction
-    restart: unless-stopped
-    networks: [scoregrid]
+      # Setting these switches mongod into --auth mode.
+      MONGO_INITDB_ROOT_USERNAME: ${MONGO_ROOT_USER:-scoregrid}
+      MONGO_INITDB_ROOT_PASSWORD: ${MONGO_ROOT_PASSWORD:?set MONGO_ROOT_PASSWORD in .env}
+      # Consumed by infra/mongo/init/01-init-users.js.
+      MONGO_PREDICTION_DB: ${MONGO_PREDICTION_DB:-scoregrid_prediction}
+      MONGO_PREDICTION_USER: ${MONGO_PREDICTION_USER:-prediction_service}
+      MONGO_PREDICTION_PASSWORD: ${MONGO_PREDICTION_PASSWORD:?set MONGO_PREDICTION_PASSWORD in .env}
+      MONGO_SCORE_DB: ${MONGO_SCORE_DB:-scoregrid_score}
+      MONGO_SCORE_USER: ${MONGO_SCORE_USER:-score_service}
+      MONGO_SCORE_PASSWORD: ${MONGO_SCORE_PASSWORD:?set MONGO_SCORE_PASSWORD in .env}
     ports: ["27018:27017"]
-    volumes: ["mongodata-prediction:/data/db"]
+    volumes:
+      - mongodata:/data/db
+      - ./infra/mongo/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
-      interval: 5s
-      timeout: 5s
-      retries: 10
-      start_period: 20s
-
-  mongo-score:
-    image: mongo:8
-    container_name: sg-mongo-score
-    restart: unless-stopped
-    networks: [scoregrid]
-    ports: ["27019:27017"]
-    volumes: ["mongodata-score:/data/db"]
-    healthcheck:
-      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      # $$ escapes compose interpolation so the shell inside the container
+      # expands these, keeping the password out of the compose config output.
+      test: ["CMD-SHELL", "mongosh --quiet -u \"$$MONGO_INITDB_ROOT_USERNAME\" -p \"$$MONGO_INITDB_ROOT_PASSWORD\" --authenticationDatabase admin --eval \"db.adminCommand('ping').ok\" | grep -q 1"]
       interval: 5s
       timeout: 5s
       retries: 10
@@ -125,12 +138,12 @@ services:
     ports: ["8081:8081"]
     environment:
       <<: *service-env
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-auth:5432/${POSTGRES_AUTH_DB:-scoregrid_auth}
-      SPRING_DATASOURCE_USERNAME: ${POSTGRES_AUTH_USER:-scoregrid}
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_AUTH_PASSWORD:-scoregrid}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_AUTH_DB:-scoregrid_auth}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_AUTH_USER:-auth_service}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_AUTH_PASSWORD:?set POSTGRES_AUTH_PASSWORD in .env}
       SCOREGRID_JWT_TTL: ${SCOREGRID_JWT_TTL:-PT24H}
     depends_on:
-      postgres-auth: {condition: service_healthy}
+      postgres: {condition: service_healthy}
     healthcheck:
       <<: *healthcheck-defaults
       test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health/readiness"]
@@ -142,9 +155,9 @@ services:
     ports: ["8082:8082"]
     environment:
       <<: *service-env
-      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-tournament:5432/${POSTGRES_TOURNAMENT_DB:-scoregrid_tournament}
-      SPRING_DATASOURCE_USERNAME: ${POSTGRES_TOURNAMENT_USER:-scoregrid}
-      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_TOURNAMENT_PASSWORD:-scoregrid}
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_TOURNAMENT_DB:-scoregrid_tournament}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_TOURNAMENT_USER:-tournament_service}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_TOURNAMENT_PASSWORD:?set POSTGRES_TOURNAMENT_PASSWORD in .env}
       SPRING_RABBITMQ_HOST: rabbitmq
       SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:-scoregrid}
       SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-scoregrid}
@@ -152,7 +165,7 @@ services:
       SCOREGRID_RESULTS_PROVIDER_BASE_URL: ${RESULTS_PROVIDER_BASE_URL:-}
       SCOREGRID_RESULTS_PROVIDER_API_KEY: ${RESULTS_PROVIDER_API_KEY:-}
     depends_on:
-      postgres-tournament: {condition: service_healthy}
+      postgres: {condition: service_healthy}
       rabbitmq: {condition: service_healthy}
     healthcheck:
       <<: *healthcheck-defaults
@@ -165,13 +178,15 @@ services:
     ports: ["8083:8083"]
     environment:
       <<: *service-env
-      SPRING_DATA_MONGODB_URI: mongodb://mongo-prediction:27017/${MONGO_PREDICTION_DB:-scoregrid_prediction}
+      # authSource is the service's own database, not admin — the user was
+      # created there and has readWrite on nothing else.
+      SPRING_MONGODB_URI: mongodb://${MONGO_PREDICTION_USER:-prediction_service}:${MONGO_PREDICTION_PASSWORD:?set MONGO_PREDICTION_PASSWORD in .env}@mongodb:27017/${MONGO_PREDICTION_DB:-scoregrid_prediction}?authSource=${MONGO_PREDICTION_DB:-scoregrid_prediction}
       SPRING_RABBITMQ_HOST: rabbitmq
       SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:-scoregrid}
       SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-scoregrid}
       SCOREGRID_CLIENTS_TOURNAMENT_BASE_URL: http://tournament-service:8082
     depends_on:
-      mongo-prediction: {condition: service_healthy}
+      mongodb: {condition: service_healthy}
       rabbitmq: {condition: service_healthy}
     healthcheck:
       <<: *healthcheck-defaults
@@ -184,14 +199,14 @@ services:
     ports: ["8084:8084"]
     environment:
       <<: *service-env
-      SPRING_DATA_MONGODB_URI: mongodb://mongo-score:27017/${MONGO_SCORE_DB:-scoregrid_score}
+      SPRING_MONGODB_URI: mongodb://${MONGO_SCORE_USER:-score_service}:${MONGO_SCORE_PASSWORD:?set MONGO_SCORE_PASSWORD in .env}@mongodb:27017/${MONGO_SCORE_DB:-scoregrid_score}?authSource=${MONGO_SCORE_DB:-scoregrid_score}
       SPRING_RABBITMQ_HOST: rabbitmq
       SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:-scoregrid}
       SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-scoregrid}
       SCOREGRID_CLIENTS_PREDICTION_BASE_URL: http://prediction-service:8083
       SCOREGRID_CLIENTS_AUTH_BASE_URL: http://auth-service:8081
     depends_on:
-      mongo-score: {condition: service_healthy}
+      mongodb: {condition: service_healthy}
       rabbitmq: {condition: service_healthy}
     healthcheck:
       <<: *healthcheck-defaults
@@ -289,10 +304,8 @@ networks:
     driver: bridge
 
 volumes:
-  pgdata-auth:
-  pgdata-tournament:
-  mongodata-prediction:
-  mongodata-score:
+  pgdata:
+  mongodata:
   rabbitdata:
   prometheusdata:
   lokidata:

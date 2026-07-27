@@ -46,7 +46,7 @@ server:
 
 scoregrid:
   jwt:
-    secret: ${SCOREGRID_JWT_SECRET}
+    secret: ${SCOREGRID_JWT_SECRET:dev-only-insecure-secret-do-not-deploy-anywhere-real}
     issuer: ${SCOREGRID_JWT_ISSUER:scoregrid-auth}
   cors:
     # CORS is configured HERE and nowhere else. Do not add CORS config to the
