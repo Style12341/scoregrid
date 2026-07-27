@@ -5,6 +5,10 @@ import { AppLayout } from "./components/layout/AppLayout";
 import { EmptyState } from "./components/common/states";
 import { usePageHeader } from "./components/layout/page-header";
 import { LoginPage } from "./features/auth/LoginPage";
+import { RegisterPage } from "./features/auth/RegisterPage";
+import { DashboardPage } from "./features/dashboard/DashboardPage";
+import { GlobalRankingPage } from "./features/rankings/GlobalRankingPage";
+import { TournamentRankingPage } from "./features/rankings/TournamentRankingPage";
 import { PredictionPage } from "./features/predictions/PredictionPage";
 import { MyPredictionsPage } from "./features/predictions/MyPredictionsPage";
 import { AdminResultsPage } from "./features/admin/AdminResultsPage";
@@ -34,25 +38,16 @@ export default function App() {
         <Routes>
           {/* Public — Stream A (Bernard). These render outside the app shell. */}
           <Route path="/login" element={<LoginPage />} />
-          <Route
-            path="/register"
-            element={<Placeholder title="Crear cuenta" owner="Stream A — Bernard" />}
-          />
+          <Route path="/register" element={<RegisterPage />} />
 
           {/* Everything below sits inside the sidebar shell. */}
           <Route element={<RequireAuth />}>
             <Route element={<AppLayout />}>
-              <Route
-                path="/"
-                element={<Placeholder title="Panel principal" owner="Stream A — Bernard" />}
-              />
-              <Route
-                path="/rankings/global"
-                element={<Placeholder title="Ranking global" owner="Stream A — Bernard" />}
-              />
+              <Route path="/" element={<DashboardPage />} />
+              <Route path="/rankings/global" element={<GlobalRankingPage />} />
               <Route
                 path="/rankings/tournament/:tournamentId"
-                element={<Placeholder title="Ranking del torneo" owner="Stream A — Bernard" />}
+                element={<TournamentRankingPage />}
               />
 
               <Route
