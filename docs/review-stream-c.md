@@ -228,6 +228,17 @@ Hand-concatenated JSON with no escaping, hand-assembled JWS. Both services alrea
 
 Separately, this mechanism is **undocumented and needs a contracts PR** before it spreads to a third service — see [`workstreams.md`](workstreams.md#open-contract-questions). `sub` currently holds a service name where the contract says it holds a user ID, and services grant themselves `ADMIN`, so no downstream service can tell a service caller from a human administrator.
 
+That last part is no longer theoretical. Minting a token exactly as `ServiceToken.generate(secret, "score-service")` does, and pointing it at the now-real auth-service:
+
+```
+GET /api/users/batch?ids=1,2   → 200  [{"id":"1","username":"maxi"},{"id":"2","username":"ana"}]
+GET /api/users?page=0&size=10  → 200  {"items":[{"id":"1","username":"maxi","email":"maxi@example.com",...
+```
+
+The first call is the one score-service needs, and it works. The second is the `ADMIN`-only listing, and the same token reads **every user's email address** — because `roles: ["ADMIN"]` is indistinguishable from a real administrator.
+
+Nothing is wrong in `auth-service` here: it is enforcing exactly the role the token claims. The problem is that a service grants itself the highest privilege in the system for a call that only needs to read usernames. A distinct `SERVICE` role, or scoping service tokens to the endpoints they actually use, would both fix it — that is the decision the contracts PR needs to make.
+
 ### C11 — Three layers of fallback hide the missing `/api/users/batch`
 
 `score-service` · `AuthRestClient.java:44-48`, `GetRankingsService.java:159-165`, and `getOrDefault(..., "?")` at lines 56 and 85.
