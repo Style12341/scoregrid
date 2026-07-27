@@ -35,6 +35,34 @@ Verified working at scaffold time: all five services compile, the frontend build
 
 ---
 
+## Where we are
+
+| Stream | Owner | State |
+|--------|-------|-------|
+| **A** — Identity, Edge & Platform | Bernard | Platform and design system done. `auth-service` is a **stub written by Stream C**; gateway routes configured but unexercised; four of five screens unbuilt. |
+| **B** — Tournament Core | Paggi | Not started. `MatchController` / `ParticipantController` / `V1__create_tournament_tables.sql` are **stubs written by Stream C**. |
+| **C** — Predictions & Scoring | Werlen | **Done** — both services implemented hexagonally end to end, three screens shipped, merged to `main` in #3. |
+
+Stream C could not integrate against nothing, so it wrote the minimum stubs it needed inside `auth-service` and `tournament-service`. That was pragmatic and it unblocked the work, but it means **two people now own code they did not write**. Bernard and Paggi replace those stubs as part of their own streams — the stubs are not a head start, they are a placeholder that happens to compile.
+
+**Outstanding, in rough dependency order:**
+
+1. **Bernard** — real `auth-service`: hexagonal structure, the error envelope on every failure path, and the three missing user endpoints. `GET /api/users/batch` is the urgent one: `score-service` already calls it and falls back to showing raw user IDs as usernames, so rankings render *plausibly wrong* rather than failing loudly.
+2. **Paggi** — real `tournament-service`. Everything downstream of `predictionsOpen` and `match.finished` is already built and waiting for a real publisher.
+3. **All three** — tests. Two unit tests exist repo-wide. The definition of done below is not currently being met by any stream, including C.
+
+---
+
+## Open contract questions
+
+Raise these as PRs against [`contracts.md`](contracts.md) with all three approvals. Do not resolve them by writing more code.
+
+**Service-to-service authentication is undocumented.** `prediction-service` and `score-service` each carry a `ServiceToken` helper that mints an HS256 JWT from `SCOREGRID_JWT_SECRET` with `sub` set to the service name (`"score-service"`) and `roles: ["ADMIN"]`, and attach it to outbound REST calls. `contracts.md` states that `sub` is a user ID and that `roles` carries `PLAYER` / `ADMIN` — so today a downstream service cannot distinguish a service caller from a genuinely ADMIN human, and `CurrentUser.requireId()` on such a request returns a string that is not a user ID.
+
+Needs an explicit decision on: the claim shape for a service principal, whether services should hold `ADMIN` at all or a distinct `SERVICE` role, and whether the token is minted per call or cached. Until it is decided, do not add a third copy of `ServiceToken`.
+
+---
+
 ## The three streams
 
 ### Stream A — Identity, Edge and Platform · **Bernard**
@@ -137,11 +165,12 @@ Nobody waits. Every dependency has a stub.
 |-----|-------|------|------------|
 | Paggi, Werlen | A valid JWT | Bernard | Sign one in a test fixture with `SCOREGRID_JWT_SECRET` and claims `sub` / `roles`. No HTTP call, no running auth-service. |
 | Paggi, Werlen | Design system components | Bernard | **Shipped.** Import from `@/components/**` — see [`AGENTS.md`](../AGENTS.md#the-design-system). Do not edit those files; ask and a variant gets added once for all three. |
-| Werlen | `GET /api/matches/{id}`, participants check | Paggi | WireMock stubs from the JSON examples in `contracts.md` |
+| Werlen | `GET /api/matches/{id}`, participants check | Paggi | **Resolved by stub.** Werlen wrote a minimal `MatchController` / `ParticipantController` in `tournament-service`; Paggi replaces them. |
 | Werlen | `match.scheduled` / `match.finished` | Paggi | Publish the payloads by hand from the RabbitMQ management UI at `localhost:15672` |
-| Bernard (rankings UI) | `GET /api/rankings/**` | Werlen | MSW handlers from the `contracts.md` examples |
+| Werlen (ranking usernames) | `GET /api/users/batch` | Bernard | **Unresolved and silent.** `AuthRestClient` catches the failure and maps each ID to itself, so rankings show `"42"` where a username belongs. Nothing breaks; it just reads wrong. |
+| Bernard (rankings UI) | `GET /api/rankings/**` | Werlen | **Shipped.** Call `score-service` directly. |
 | Paggi (fixture UI) | Nothing from anyone | — | — |
-| Everyone | Contracts | Phase 0 | Frozen. |
+| Everyone | Contracts | Phase 0 | Frozen — with one undocumented addition, see [Open contract questions](#open-contract-questions). |
 
 The one hard sequencing constraint in the whole project was Bernard's design system in week one. It has shipped, so nothing blocks anyone now — everything else is stubbable, which is exactly why the contracts are frozen up front.
 
