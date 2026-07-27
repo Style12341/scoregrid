@@ -1,0 +1,133 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+/*
+ * ScoreGrid design tokens.
+ *
+ * Values are lifted verbatim from the interface mock
+ * (scoregrid_mock_interfaces_html.html) so the built UI and the mock cannot
+ * drift apart. Change a colour here, not in a component.
+ *
+ * Naming follows the shadcn/ui semantic contract (background/foreground pairs)
+ * so generated components theme themselves with no edits.
+ */
+:root {
+  /* Mock: body background behind the app shell. */
+  --background: #eef2f7;
+  --foreground: #0f172a;
+
+  /* Mock: --card / --text. Cards are white on the soft grey page. */
+  --card: #ffffff;
+  --card-foreground: #0f172a;
+  --popover: #ffffff;
+  --popover-foreground: #0f172a;
+
+  /* Mock: --primary / --primary-dark. */
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --primary-hover: #1d4ed8;
+
+  /*
+   * NOTE a deliberate divergence from the mock's variable names.
+   *
+   * The mock calls its green --secondary, but shadcn reserves "secondary" for
+   * the quiet button variant, which in the mock is the pale blue pair
+   * (.button.secondary). So: secondary = pale blue, and the green moves to
+   * --success where it belongs semantically.
+   */
+  --secondary: #e0f2fe;
+  --secondary-foreground: #0369a1;
+
+  --success: #16a34a;
+  --success-foreground: #ffffff;
+
+  --warning: #f59e0b;
+  --warning-foreground: #ffffff;
+
+  --destructive: #dc2626;
+  --destructive-foreground: #ffffff;
+
+  /* Mock: --card-soft, used for match cards and mini stats. */
+  --muted: #f8fafc;
+  --muted-foreground: #64748b;
+  --accent: #f8fafc;
+  --accent-foreground: #0f172a;
+
+  --border: #e2e8f0;
+  --input: #e2e8f0;
+  --ring: #2563eb;
+
+  /* Mock: the dark sidebar gradient and the login hero. */
+  --sidebar: #0f172a;
+  --sidebar-end: #111827;
+  --sidebar-foreground: #e5e7eb;
+  --sidebar-muted: #94a3b8;
+  --sidebar-accent: rgb(255 255 255 / 0.12);
+
+  /* Mock: --radius 16px, with the smaller 12px used by buttons and fields. */
+  --radius: 16px;
+}
+
+/*
+ * Expose the tokens above to Tailwind utilities: bg-card, text-muted-foreground,
+ * rounded-lg, and so on. "inline" means the utilities read the variables at use
+ * site rather than copying their values.
+ */
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-primary-hover: var(--primary-hover);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-success: var(--success);
+  --color-success-foreground: var(--success-foreground);
+  --color-warning: var(--warning);
+  --color-warning-foreground: var(--warning-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+  --color-sidebar: var(--sidebar);
+  --color-sidebar-end: var(--sidebar-end);
+  --color-sidebar-foreground: var(--sidebar-foreground);
+  --color-sidebar-muted: var(--sidebar-muted);
+  --color-sidebar-accent: var(--sidebar-accent);
+
+  /* Mock: --radius 16px for cards, 12px for controls, 999px for pills. */
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: var(--radius);
+  --radius-xl: 24px;
+
+  /* Mock: --shadow. One elevation, used everywhere. */
+  --shadow-card: 0 12px 32px rgb(15 23 42 / 0.12);
+
+  --font-sans: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+@layer base {
+  * {
+    @apply border-border;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans;
+    min-height: 100vh;
+  }
+
+  /* The mock relies on a visible focus ring for keyboard users. Keep it. */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-ring;
+  }
+}
