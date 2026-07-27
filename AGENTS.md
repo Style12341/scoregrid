@@ -39,20 +39,24 @@ Scaffolding is complete and verified. Stream C (predictions and scoring) has lan
 - `score-service`: `ScoringRuleV1` (3 exact / 1 outcome / 0) with the parameterised table from `contracts.md`, idempotent per-match scoring by replace, tournament and global ranking projections with the tie-break chain, `match.finished` consumer, REST clients to prediction-service and auth-service, five ranking endpoints.
 - Screens: `PredictionPage`, `MyPredictionsPage`, `AdminResultsPage`, wired into `App.tsx`.
 
-**Temporary stubs — replace, do not build on:**
+**Stream A — done** (`auth-service`, `api-gateway`, frontend foundation):
+- `auth-service` end to end and hexagonal: register, login, `/me`, `/api/users/{id}`, `/api/users`, `/api/users/batch`. BCrypt hashing, JWT issuance from `scoregrid.jwt.ttl`, the shared error envelope on every failure path. 81 tests including Testcontainers against real PostgreSQL. It replaced the Stream C stub.
+- `api-gateway`: five route groups, edge JWT rejection, CORS. Verified live — a request to `:8080` reaches auth-service and score-service, and an unauthenticated one is refused at the edge.
+- Screens: Login, Register, Dashboard, Tournament Ranking, Global Ranking.
+- Lombok and MapStruct are the agreed project-wide convention; `auth-service` is the reference wiring (see the annotation-processor ordering in its POM).
+
+**Temporary stub still in place — replace, do not build on:**
 
 | Stub | Lives in | Owner who must replace it |
 |------|----------|---------------------------|
-| `AuthController` (register / login / me), `UserEntity`, `RoleEntity`, repositories, `V1__create_users_roles.sql` | `auth-service` | **Bernard** |
 | `MatchController`, `ParticipantController`, `MatchEntity`, `TeamEntity`, `V1__create_tournament_tables.sql` | `tournament-service` | **Paggi** |
 
-These exist so Stream C could integrate against something real. They are not hexagonal, they carry no tests, and they do not implement the full contract. Treat them as scaffolding with a deadline, not as a starting point to extend.
+Written by Stream C so it could integrate against something real. Not hexagonal, no tests, and it does not implement the full contract. Scaffolding with a deadline, not a starting point to extend.
 
 **Does not exist yet:**
-- `auth-service`: `/api/users/{id}`, `/api/users`, `/api/users/batch`. **`score-service` already calls `/api/users/batch`** and silently falls back to rendering the raw user ID as the username when the call fails — so rankings look subtly wrong rather than broken until this ships.
-- `tournament-service`: everything except the match/participant stubs — tournaments, teams, groups, phases, the state machine, `predictionsOpen`, enrolment, event publishing.
-- Screens: Register, Dashboard, Tournament Ranking, Global Ranking (Stream A); tournament list, tournament detail, admin panel (Stream B).
-- Integration tests. Only two unit tests exist repo-wide (`ScoringRuleV1Test`, `DerivedOutcomeTest`). No Testcontainers, `@WebMvcTest`, `@DataJpaTest` or `@DataMongoTest` suite yet, against the definition of done in [`docs/workstreams.md`](docs/workstreams.md#working-agreements).
+- `tournament-service`: everything except the match/participant stubs — tournaments, teams, groups, phases, the state machine, `predictionsOpen`, enrolment, event publishing. **This is now the critical path**: prediction and score are built and waiting for a real publisher, and nothing can be demonstrated end to end without it.
+- Screens: tournament list, tournament detail, admin panel (Stream B).
+- Tests in `tournament-service`, `prediction-service` and `score-service`. Stream C has two unit tests (`ScoringRuleV1Test`, `DerivedOutcomeTest`) and no Testcontainers, `@WebMvcTest` or `@DataMongoTest` suite, against the definition of done in [`docs/workstreams.md`](docs/workstreams.md#working-agreements). See [`docs/review-stream-c.md`](docs/review-stream-c.md).
 
 **Undocumented cross-service mechanism — needs a contracts PR.** Stream C introduced `ServiceToken` (duplicated in `prediction-service` and `score-service`) which mints an HS256 JWT from `SCOREGRID_JWT_SECRET` with `sub` set to the *service name* and `roles: ["ADMIN"]`, for service-to-service REST calls. This is load-bearing and is **not** in [`docs/contracts.md`](docs/contracts.md) — which currently states `sub` is always a user ID. Do not copy the pattern into a third service until the contract is amended by PR with all three approvals. See [`docs/workstreams.md`](docs/workstreams.md#open-contract-questions).
 

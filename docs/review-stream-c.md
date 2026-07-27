@@ -112,6 +112,17 @@ So in the global ranking nearly every player shows `tournamentsPlayed: 0`, and t
 
 **Fix:** derive it per user — for each user, the set of distinct `tournamentId`s across the match scores that contain a prediction of theirs.
 
+Reproduced against a running score-service. Three players, two finished matches, all in tournament `1` — so every one of them has `tournamentsPlayed = 1`:
+
+```
+GET /api/rankings/global
+  ana    totalPoints 4   tournamentsPlayed 0   averagePointsPerTournament 0.0
+  maxi   totalPoints 4   tournamentsPlayed 1   averagePointsPerTournament 4.0
+  lucia  totalPoints 0   tournamentsPlayed 0   averagePointsPerTournament 0.0
+```
+
+Only `maxi` is credited, because `userId "1"` happens to be first in the `individualScores` array of both matches. The other two report `0` tournaments and a `0.0` average despite `ana` being top of the table on points.
+
 ### C4 — Service tokens are minted once at startup and expire after 24 hours
 
 `prediction-service` · `TournamentRestClient.java:40`
@@ -252,6 +263,20 @@ Note this also degrades C2's tie-break: `username` is the final tie-break key, a
 `score-service` · `GetRankingsService.java:63,96` — `findAll()` / `findAllByTournamentId()`, grouped in Java, then `subList` for paging.
 
 Fine at demo scale and not worth rewriting now. Flagging it so it is a known limit rather than a surprise: `page`/`size` do not reduce the work done, only the rows returned.
+
+### C12b — `GET /api/rankings/user/{userId}` is a stub that looks like real data
+
+`score-service` · `RankingController.java`
+
+```java
+@GetMapping("/user/{userId}")
+ResponseEntity<List<TournamentRankingResponse>> getUserRanking(@PathVariable String userId) {
+    // User's ranking across all tournaments — returns empty for now, to be implemented
+    return ResponseEntity.ok(List.of());
+}
+```
+
+The endpoint is in `contracts.md`, so a client is entitled to call it — and it answers `200 []`, which is indistinguishable from "this user has no scores". A caller cannot tell "not implemented" from "no data", and will render an empty state instead of an error. I have deliberately not built any UI against it. Either implement it or return `501`.
 
 ### C13 — `locked` is always `false` on create
 
