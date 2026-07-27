@@ -36,3 +36,4 @@ logs/
 # Source proposal artefacts
 ~$*.docx
 .atl
+openspec
