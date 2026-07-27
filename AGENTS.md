@@ -123,6 +123,22 @@ spring:
       auto-index-creation: true      # stays here
 ```
 
+**Boot 4 moved the test slice annotations into per-module packages.** The Boot 3 imports do not exist and there is no deprecation shim — you get `package ... does not exist`, which at least fails loudly, unlike the traps above. Verified against the resolved jars:
+
+| Annotation | Boot 3 (wrong here) | Boot 4.1 |
+|------------|---------------------|----------|
+| `@WebMvcTest` | `o.s.b.test.autoconfigure.web.servlet` | `org.springframework.boot.webmvc.test.autoconfigure` |
+| `@DataJpaTest` | `o.s.b.test.autoconfigure.orm.jpa` | `org.springframework.boot.data.jpa.test.autoconfigure` |
+| `@AutoConfigureTestDatabase` | `o.s.b.test.autoconfigure.jdbc` | `org.springframework.boot.jdbc.test.autoconfigure` |
+
+`MockMvc`, `MockMvcRequestBuilders`, `@MockitoBean` and `SecurityMockMvcRequestPostProcessors` did **not** move — they come from `spring-test` and `spring-security-test`, not Boot. Use `@MockitoBean`, not the removed `@MockBean`.
+
+**MapStruct reads a `withX()` copy-method as a target property.** A domain type with `User withId(Long)` makes MapStruct report `Unmapped target property: "withId"`, and with `unmappedTargetPolicy = ERROR` that fails the build. It is a wither, not a builder, so `disableBuilder` does not help — add `@Mapping(target = "withId", ignore = true)`. Keep the strict policy: it is what catches a genuinely forgotten field.
+
+Order matters in `annotationProcessorPaths`: lombok, then `lombok-mapstruct-binding`, then `mapstruct-processor`. Wrong order and MapStruct cannot see Lombok-generated accessors.
+
+**Maven's incremental build will lie about annotation processors.** Changing a class into a MapStruct interface and rebuilding without `clean` can leave the old compiled class in `target/classes` and skip processing entirely — tests that do not load a Spring context still pass, and the missing `@Component` only surfaces at runtime. After touching a mapper or a processor path, run `./mvnw clean test`, and check `target/generated-sources/annotations/` actually contains the `*Impl`.
+
 **A readiness probe that excludes the datastore will lie to you.** `/actuator/health/readiness` contains only `readinessState` by default, so a container reports healthy while every query fails. Each data service adds the relevant indicator to the readiness group — see `management.endpoint.health.group.readiness` in its `application.yml`. This is how the property change above went unnoticed in the first place.
 
 ---
