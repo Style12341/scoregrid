@@ -1,0 +1,95 @@
+spring:
+  application:
+    name: api-gateway
+
+  cloud:
+    gateway:
+      # NOTE the namespace: 'server.webmvc'. Spring Cloud Gateway 5.x moved
+      # route config here. Older tutorials use spring.cloud.gateway.routes or
+      # spring.cloud.gateway.mvc.routes — both are silently ignored now, which
+      # looks like "the gateway routes nothing and gives no error".
+      server:
+        webmvc:
+          routes:
+            - id: auth
+              uri: ${SCOREGRID_ROUTES_AUTH_URI:http://localhost:8081}
+              predicates:
+                - Path=/api/auth/**
+
+            - id: users
+              uri: ${SCOREGRID_ROUTES_AUTH_URI:http://localhost:8081}
+              predicates:
+                - Path=/api/users/**
+
+            - id: tournament
+              uri: ${SCOREGRID_ROUTES_TOURNAMENT_URI:http://localhost:8082}
+              predicates:
+                - Path=/api/tournaments/**,/api/teams/**,/api/groups/**,/api/phases/**,/api/matches/**
+
+            - id: prediction
+              uri: ${SCOREGRID_ROUTES_PREDICTION_URI:http://localhost:8083}
+              predicates:
+                - Path=/api/predictions/**
+
+            - id: score
+              uri: ${SCOREGRID_ROUTES_SCORE_URI:http://localhost:8084}
+              predicates:
+                - Path=/api/rankings/**
+
+  threads:
+    virtual:
+      enabled: true
+
+server:
+  port: 8080
+  shutdown: graceful
+
+scoregrid:
+  jwt:
+    secret: ${SCOREGRID_JWT_SECRET}
+    issuer: ${SCOREGRID_JWT_ISSUER:scoregrid-auth}
+  cors:
+    # CORS is configured HERE and nowhere else. Do not add CORS config to the
+    # downstream services.
+    allowed-origins: ${SCOREGRID_CORS_ALLOWED_ORIGINS:http://localhost:3000,http://localhost:5173}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus,gateway
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:1.0}
+
+logging:
+  level:
+    com.scoregrid: DEBUG
+    org.springframework.cloud.gateway: INFO
+
+---
+# ── docker profile ───────────────────────────────────────────────────────────
+spring:
+  config:
+    activate:
+      on-profile: docker
+
+logging:
+  structured:
+    format:
+      console: logstash
+  level:
+    com.scoregrid: INFO

@@ -1,0 +1,15 @@
+# Line endings are a repo property, not a per-developer git config.
+# Without this, a Windows clone with core.autocrlf=true commits CRLF into
+# mvnw and CI dies with "bad interpreter: /bin/sh^M".
+* text=auto eol=lf
+
+# Windows-only scripts genuinely need CRLF.
+*.cmd text eol=crlf
+*.bat text eol=crlf
+
+# Never normalise these.
+*.jar binary
+*.png binary
+*.jpg binary
+*.ico binary
+*.docx binary

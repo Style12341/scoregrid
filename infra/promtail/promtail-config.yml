@@ -1,0 +1,42 @@
+server:
+  http_listen_port: 9080
+  grpc_listen_port: 0
+
+positions:
+  filename: /tmp/positions.yaml
+
+clients:
+  - url: http://loki:3100/loki/api/v1/push
+
+scrape_configs:
+  # Scrape every ScoreGrid container's stdout via the Docker socket.
+  - job_name: scoregrid-containers
+    docker_sd_configs:
+      - host: unix:///var/run/docker.sock
+        refresh_interval: 10s
+    relabel_configs:
+      # Only containers from this Compose project
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_project']
+        regex: scoregrid
+        action: keep
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_service']
+        target_label: service
+      - source_labels: ['__meta_docker_container_name']
+        regex: '/(.*)'
+        target_label: container
+    pipeline_stages:
+      # Services log structured JSON in the docker profile; lift the useful
+      # fields out so they are queryable in Grafana rather than just text.
+      - json:
+          expressions:
+            level: level
+            logger: logger_name
+            thread: thread_name
+            traceId: traceId
+            spanId: spanId
+            message: message
+      - labels:
+          level:
+          traceId:
+      - output:
+          source: message

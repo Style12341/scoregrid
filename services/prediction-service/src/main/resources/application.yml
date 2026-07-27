@@ -1,0 +1,84 @@
+spring:
+  application:
+    name: prediction-service
+
+  data:
+    mongodb:
+      uri: ${SPRING_DATA_MONGODB_URI:mongodb://localhost:27018/scoregrid_prediction}
+      auto-index-creation: true
+
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:localhost}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+    username: ${SPRING_RABBITMQ_USERNAME:scoregrid}
+    password: ${SPRING_RABBITMQ_PASSWORD:scoregrid}
+    publisher-confirm-type: correlated
+    listener:
+      simple:
+        acknowledge-mode: auto
+        default-requeue-rejected: false
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1s
+          multiplier: 2
+          max-interval: 4s
+
+  threads:
+    virtual:
+      enabled: true
+
+server:
+  port: 8083
+  shutdown: graceful
+
+scoregrid:
+  jwt:
+    secret: ${SCOREGRID_JWT_SECRET}
+    issuer: ${SCOREGRID_JWT_ISSUER:scoregrid-auth}
+
+  clients:
+    # Used only on match-cache miss. The cache is fed by match.scheduled /
+    # match.updated events — see docs/contracts.md#events--rabbitmq.
+    tournament:
+      base-url: ${SCOREGRID_CLIENTS_TOURNAMENT_BASE_URL:http://localhost:8082}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:1.0}
+
+logging:
+  level:
+    com.scoregrid: DEBUG
+
+---
+# ── docker profile ───────────────────────────────────────────────────────────
+spring:
+  config:
+    activate:
+      on-profile: docker
+
+logging:
+  structured:
+    format:
+      console: logstash
+  level:
+    com.scoregrid: INFO

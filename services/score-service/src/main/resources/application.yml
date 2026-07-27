@@ -1,0 +1,91 @@
+spring:
+  application:
+    name: score-service
+
+  data:
+    mongodb:
+      uri: ${SPRING_DATA_MONGODB_URI:mongodb://localhost:27019/scoregrid_score}
+      auto-index-creation: true
+
+  rabbitmq:
+    host: ${SPRING_RABBITMQ_HOST:localhost}
+    port: ${SPRING_RABBITMQ_PORT:5672}
+    username: ${SPRING_RABBITMQ_USERNAME:scoregrid}
+    password: ${SPRING_RABBITMQ_PASSWORD:scoregrid}
+    listener:
+      simple:
+        acknowledge-mode: auto
+        # On exhaustion the message dead-letters instead of being requeued
+        # forever. Scoring resumes later; nothing is lost.
+        default-requeue-rejected: false
+        retry:
+          enabled: true
+          max-attempts: 3
+          initial-interval: 1s
+          multiplier: 2
+          max-interval: 4s
+
+  threads:
+    virtual:
+      enabled: true
+
+server:
+  port: 8084
+  shutdown: graceful
+
+scoregrid:
+  jwt:
+    secret: ${SCOREGRID_JWT_SECRET}
+    issuer: ${SCOREGRID_JWT_ISSUER:scoregrid-auth}
+
+  clients:
+    prediction:
+      base-url: ${SCOREGRID_CLIENTS_PREDICTION_BASE_URL:http://localhost:8083}
+    auth:
+      base-url: ${SCOREGRID_CLIENTS_AUTH_BASE_URL:http://localhost:8081}
+
+  # Scoring rule v1. Exact implies outcome — award 3, not 4.
+  # Contract and test table: docs/contracts.md#scoring-rule-v1
+  scoring:
+    points-exact-score: 3
+    points-correct-outcome: 1
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,metrics,prometheus
+  endpoint:
+    health:
+      probes:
+        enabled: true
+      show-details: always
+  health:
+    livenessstate:
+      enabled: true
+    readinessstate:
+      enabled: true
+  metrics:
+    tags:
+      application: ${spring.application.name}
+  tracing:
+    sampling:
+      probability: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:1.0}
+
+logging:
+  level:
+    com.scoregrid: DEBUG
+
+---
+# ── docker profile ───────────────────────────────────────────────────────────
+spring:
+  config:
+    activate:
+      on-profile: docker
+
+logging:
+  structured:
+    format:
+      console: logstash
+  level:
+    com.scoregrid: INFO

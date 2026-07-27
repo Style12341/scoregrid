@@ -1,0 +1,299 @@
+name: scoregrid
+
+# ─────────────────────────────────────────────────────────────────────────────
+# ScoreGrid — full local environment.
+#
+#   docker compose up -d --build                    core system (11 containers)
+#   docker compose --profile observability up -d    + Prometheus, Grafana, Loki
+#
+# Host ports for databases are deliberately offset (5433/5434, 27018/27019) so
+# they never collide with a Postgres or Mongo already installed on your machine.
+# Inside the network, services talk on standard ports via container names.
+# ─────────────────────────────────────────────────────────────────────────────
+
+x-service-defaults: &service-defaults
+  restart: unless-stopped
+  networks: [scoregrid]
+  environment: &service-env
+    TZ: UTC
+    SPRING_PROFILES_ACTIVE: docker
+    SCOREGRID_JWT_SECRET: ${SCOREGRID_JWT_SECRET:?set SCOREGRID_JWT_SECRET in .env}
+    SCOREGRID_JWT_ISSUER: ${SCOREGRID_JWT_ISSUER:-scoregrid-auth}
+    MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+
+x-healthcheck-defaults: &healthcheck-defaults
+  interval: 10s
+  timeout: 5s
+  retries: 12
+  start_period: 60s
+
+services:
+
+  # ══ Databases ══════════════════════════════════════════════════════════════
+
+  postgres-auth:
+    image: postgres:17-alpine
+    container_name: sg-postgres-auth
+    restart: unless-stopped
+    networks: [scoregrid]
+    environment:
+      POSTGRES_DB: ${POSTGRES_AUTH_DB:-scoregrid_auth}
+      POSTGRES_USER: ${POSTGRES_AUTH_USER:-scoregrid}
+      POSTGRES_PASSWORD: ${POSTGRES_AUTH_PASSWORD:-scoregrid}
+    ports: ["5433:5432"]
+    volumes: ["pgdata-auth:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_AUTH_USER:-scoregrid} -d ${POSTGRES_AUTH_DB:-scoregrid_auth}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  postgres-tournament:
+    image: postgres:17-alpine
+    container_name: sg-postgres-tournament
+    restart: unless-stopped
+    networks: [scoregrid]
+    environment:
+      POSTGRES_DB: ${POSTGRES_TOURNAMENT_DB:-scoregrid_tournament}
+      POSTGRES_USER: ${POSTGRES_TOURNAMENT_USER:-scoregrid}
+      POSTGRES_PASSWORD: ${POSTGRES_TOURNAMENT_PASSWORD:-scoregrid}
+    ports: ["5434:5432"]
+    volumes: ["pgdata-tournament:/var/lib/postgresql/data"]
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_TOURNAMENT_USER:-scoregrid} -d ${POSTGRES_TOURNAMENT_DB:-scoregrid_tournament}"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+  mongo-prediction:
+    image: mongo:8
+    container_name: sg-mongo-prediction
+    restart: unless-stopped
+    networks: [scoregrid]
+    ports: ["27018:27017"]
+    volumes: ["mongodata-prediction:/data/db"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  mongo-score:
+    image: mongo:8
+    container_name: sg-mongo-score
+    restart: unless-stopped
+    networks: [scoregrid]
+    ports: ["27019:27017"]
+    volumes: ["mongodata-score:/data/db"]
+    healthcheck:
+      test: ["CMD", "mongosh", "--quiet", "--eval", "db.adminCommand('ping').ok"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 20s
+
+  # ══ Messaging ══════════════════════════════════════════════════════════════
+
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    container_name: sg-rabbitmq
+    restart: unless-stopped
+    networks: [scoregrid]
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-scoregrid}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-scoregrid}
+    ports:
+      - "5672:5672"     # AMQP
+      - "15672:15672"   # management UI
+    volumes: ["rabbitdata:/var/lib/rabbitmq"]
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 10s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+
+  # ══ Services ═══════════════════════════════════════════════════════════════
+
+  auth-service:
+    <<: *service-defaults
+    build: ./services/auth-service
+    container_name: sg-auth-service
+    ports: ["8081:8081"]
+    environment:
+      <<: *service-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-auth:5432/${POSTGRES_AUTH_DB:-scoregrid_auth}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_AUTH_USER:-scoregrid}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_AUTH_PASSWORD:-scoregrid}
+      SCOREGRID_JWT_TTL: ${SCOREGRID_JWT_TTL:-PT24H}
+    depends_on:
+      postgres-auth: {condition: service_healthy}
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "-qO-", "http://localhost:8081/actuator/health/readiness"]
+
+  tournament-service:
+    <<: *service-defaults
+    build: ./services/tournament-service
+    container_name: sg-tournament-service
+    ports: ["8082:8082"]
+    environment:
+      <<: *service-env
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres-tournament:5432/${POSTGRES_TOURNAMENT_DB:-scoregrid_tournament}
+      SPRING_DATASOURCE_USERNAME: ${POSTGRES_TOURNAMENT_USER:-scoregrid}
+      SPRING_DATASOURCE_PASSWORD: ${POSTGRES_TOURNAMENT_PASSWORD:-scoregrid}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:-scoregrid}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-scoregrid}
+      SCOREGRID_RESULTS_PROVIDER_ENABLED: ${RESULTS_PROVIDER_ENABLED:-false}
+      SCOREGRID_RESULTS_PROVIDER_BASE_URL: ${RESULTS_PROVIDER_BASE_URL:-}
+      SCOREGRID_RESULTS_PROVIDER_API_KEY: ${RESULTS_PROVIDER_API_KEY:-}
+    depends_on:
+      postgres-tournament: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "-qO-", "http://localhost:8082/actuator/health/readiness"]
+
+  prediction-service:
+    <<: *service-defaults
+    build: ./services/prediction-service
+    container_name: sg-prediction-service
+    ports: ["8083:8083"]
+    environment:
+      <<: *service-env
+      SPRING_DATA_MONGODB_URI: mongodb://mongo-prediction:27017/${MONGO_PREDICTION_DB:-scoregrid_prediction}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:-scoregrid}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-scoregrid}
+      SCOREGRID_CLIENTS_TOURNAMENT_BASE_URL: http://tournament-service:8082
+    depends_on:
+      mongo-prediction: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "-qO-", "http://localhost:8083/actuator/health/readiness"]
+
+  score-service:
+    <<: *service-defaults
+    build: ./services/score-service
+    container_name: sg-score-service
+    ports: ["8084:8084"]
+    environment:
+      <<: *service-env
+      SPRING_DATA_MONGODB_URI: mongodb://mongo-score:27017/${MONGO_SCORE_DB:-scoregrid_score}
+      SPRING_RABBITMQ_HOST: rabbitmq
+      SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:-scoregrid}
+      SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-scoregrid}
+      SCOREGRID_CLIENTS_PREDICTION_BASE_URL: http://prediction-service:8083
+      SCOREGRID_CLIENTS_AUTH_BASE_URL: http://auth-service:8081
+    depends_on:
+      mongo-score: {condition: service_healthy}
+      rabbitmq: {condition: service_healthy}
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "-qO-", "http://localhost:8084/actuator/health/readiness"]
+
+  api-gateway:
+    <<: *service-defaults
+    build: ./services/api-gateway
+    container_name: sg-api-gateway
+    ports: ["8080:8080"]
+    environment:
+      <<: *service-env
+      SCOREGRID_ROUTES_AUTH_URI: http://auth-service:8081
+      SCOREGRID_ROUTES_TOURNAMENT_URI: http://tournament-service:8082
+      SCOREGRID_ROUTES_PREDICTION_URI: http://prediction-service:8083
+      SCOREGRID_ROUTES_SCORE_URI: http://score-service:8084
+      SCOREGRID_CORS_ALLOWED_ORIGINS: ${FRONTEND_ORIGIN:-http://localhost:3000},http://localhost:5173
+    depends_on:
+      auth-service: {condition: service_healthy}
+      tournament-service: {condition: service_healthy}
+      prediction-service: {condition: service_healthy}
+      score-service: {condition: service_healthy}
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "-qO-", "http://localhost:8080/actuator/health/readiness"]
+
+  frontend:
+    build:
+      context: ./frontend
+      args:
+        VITE_API_BASE_URL: http://localhost:8080
+    container_name: sg-frontend
+    restart: unless-stopped
+    networks: [scoregrid]
+    ports: ["3000:80"]
+    depends_on:
+      api-gateway: {condition: service_healthy}
+
+  # ══ Observability — profile: observability ═════════════════════════════════
+
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: sg-prometheus
+    profiles: [observability]
+    restart: unless-stopped
+    networks: [scoregrid]
+    ports: ["9090:9090"]
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+      - prometheusdata:/prometheus
+
+  loki:
+    image: grafana/loki:latest
+    container_name: sg-loki
+    profiles: [observability]
+    restart: unless-stopped
+    networks: [scoregrid]
+    command: -config.file=/etc/loki/loki-config.yml
+    ports: ["3100:3100"]
+    volumes:
+      - ./infra/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
+      - lokidata:/loki
+
+  promtail:
+    image: grafana/promtail:latest
+    container_name: sg-promtail
+    profiles: [observability]
+    restart: unless-stopped
+    networks: [scoregrid]
+    command: -config.file=/etc/promtail/promtail-config.yml
+    volumes:
+      - ./infra/promtail/promtail-config.yml:/etc/promtail/promtail-config.yml:ro
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    depends_on: [loki]
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: sg-grafana
+    profiles: [observability]
+    restart: unless-stopped
+    networks: [scoregrid]
+    ports: ["3001:3000"]
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
+      - grafanadata:/var/lib/grafana
+    depends_on: [prometheus, loki]
+
+networks:
+  scoregrid:
+    driver: bridge
+
+volumes:
+  pgdata-auth:
+  pgdata-tournament:
+  mongodata-prediction:
+  mongodata-score:
+  rabbitdata:
+  prometheusdata:
+  lokidata:
+  grafanadata:

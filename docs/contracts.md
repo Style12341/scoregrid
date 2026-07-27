@@ -1,0 +1,468 @@
+# ScoreGrid — Frozen Contracts
+
+**Status:** Frozen at v1. Changing anything here requires a PR reviewed by all three developers.
+**Audience:** Engineering
+
+This document is the single source of truth for every interface crossing a service boundary. It exists so three developers can build five services concurrently without waiting for each other. Code against this document, stub what you do not own, integrate at the milestones.
+
+There is deliberately **no shared Java library** for these types. Each service owns its own copy of the DTOs. A shared library would create a build-order dependency between developers and couple services at compile time — the exact thing microservices are supposed to avoid.
+
+---
+
+## Conventions
+
+- All timestamps are **ISO-8601 UTC** with offset: `2026-08-14T18:30:00Z`. Never local time. The server clock is authoritative for the prediction lock.
+- All IDs crossing a boundary are **strings**. Postgres services use numeric primary keys internally and serialise them as strings; Mongo services use `ObjectId` hex.
+- JSON is `camelCase`.
+- Paths below are as seen by the **client through the gateway**. The gateway strips nothing — `/api/tournaments` routes to `tournament-service` `/api/tournaments`.
+- Every endpoint except those marked *public* requires `Authorization: Bearer <jwt>`.
+
+### Error envelope
+
+Every service returns the same shape on error. No exceptions.
+
+```json
+{
+  "timestamp": "2026-07-26T12:00:00Z",
+  "status": 409,
+  "error": "PREDICTION_LOCKED",
+  "message": "Match has already started; predictions are locked.",
+  "path": "/api/predictions/68a1f2c3d4e5f6a7b8c9d0e1"
+}
+```
+
+| Status | When |
+|--------|------|
+| `400` | Malformed body, failed bean validation |
+| `401` | Missing, malformed or expired JWT |
+| `403` | Authenticated but not permitted (wrong role, or another user's resource) |
+| `404` | Resource does not exist |
+| `409` | Business rule violation (locked, duplicate, wrong state) |
+| `422` | Semantically invalid (e.g. home team equals away team) |
+| `503` | A required downstream service is unavailable (circuit open) |
+
+Error codes used across services: `VALIDATION_FAILED`, `UNAUTHORIZED`, `FORBIDDEN`, `NOT_FOUND`, `DUPLICATE_PREDICTION`, `PREDICTION_LOCKED`, `TOURNAMENT_NOT_ACTIVE`, `NOT_ENROLLED`, `INVALID_MATCH_STATE`, `DOWNSTREAM_UNAVAILABLE`.
+
+---
+
+## Authentication contract
+
+`auth-service` issues a JWT signed **HS256** with a shared secret (`SCOREGRID_JWT_SECRET`). Every service validates it with `spring-boot-starter-oauth2-resource-server` configured with that same secret.
+
+> **Why HS256 and not RS256/JWKS:** one environment variable versus key files mounted into six containers. The upgrade path is documented in [`start.md`](start.md#upgrading-to-rs256) and touches only the security configuration of each service.
+
+Claims:
+
+```json
+{
+  "sub": "42",
+  "username": "maxi",
+  "email": "maxi@example.com",
+  "roles": ["PLAYER"],
+  "iss": "scoregrid-auth",
+  "iat": 1785000000,
+  "exp": 1785086400
+}
+```
+
+- `sub` is the user ID. **Every service takes the acting user from `sub`, never from a request body or query parameter.** A `userId` in a payload is a privilege escalation waiting to happen.
+- `roles` contains `PLAYER` and/or `ADMIN`. Spring Security maps them to `ROLE_PLAYER` / `ROLE_ADMIN`.
+- Token lifetime: 24 hours. No refresh token in v1.
+
+The gateway rejects requests with no valid token before routing. Each service **validates again** and enforces roles at the method level. Defence in depth: the gateway is a convenience, not the security boundary.
+
+---
+
+## Gateway routes
+
+| Path prefix | Target | Auth at edge |
+|-------------|--------|--------------|
+| `/api/auth/**` | `auth-service:8081` | public |
+| `/api/users/**` | `auth-service:8081` | required |
+| `/api/tournaments/**`, `/api/teams/**`, `/api/groups/**`, `/api/phases/**`, `/api/matches/**` | `tournament-service:8082` | required |
+| `/api/predictions/**` | `prediction-service:8083` | required |
+| `/api/rankings/**` | `score-service:8084` | required |
+
+CORS is configured **only** at the gateway. Origin `http://localhost:5173` in development.
+
+---
+
+## Auth Service — `/api/auth`, `/api/users`
+
+| Method | Path | Role | Purpose |
+|--------|------|------|---------|
+| `POST` | `/api/auth/register` | public | Create an account |
+| `POST` | `/api/auth/login` | public | Exchange credentials for a JWT |
+| `GET` | `/api/auth/me` | any | Current user profile |
+| `GET` | `/api/users/{id}` | any | Public profile of a user |
+| `GET` | `/api/users` | `ADMIN` | List users, paginated |
+| `GET` | `/api/users/batch?ids=1,2,3` | any | Bulk profile lookup — used by Score Service to attach usernames to rankings |
+
+**`POST /api/auth/register`**
+```json
+{ "username": "maxi", "email": "maxi@example.com", "password": "correct-horse-battery" }
+```
+`username` 3–30 chars, unique. `email` valid and unique. `password` minimum 8 chars. New accounts get `PLAYER`. `201 Created` returns the same body as `/api/auth/me`.
+
+**`POST /api/auth/login`**
+```json
+{ "usernameOrEmail": "maxi", "password": "correct-horse-battery" }
+```
+→ `200`
+```json
+{ "token": "eyJhbGciOi...", "expiresAt": "2026-07-27T12:00:00Z", "user": { "id": "42", "username": "maxi", "email": "maxi@example.com", "roles": ["PLAYER"] } }
+```
+Wrong credentials → `401 UNAUTHORIZED`. The message must not distinguish "no such user" from "wrong password".
+
+**`GET /api/users/batch?ids=1,2,3`** → `200`
+```json
+[ { "id": "1", "username": "maxi" }, { "id": "2", "username": "ana" } ]
+```
+Maximum 200 ids per call. Unknown ids are omitted, not errors.
+
+---
+
+## Tournament Service — `/api/tournaments`, `/api/teams`, `/api/groups`, `/api/phases`, `/api/matches`
+
+### Tournaments
+
+| Method | Path | Role |
+|--------|------|------|
+| `POST` | `/api/tournaments` | `ADMIN` |
+| `GET` | `/api/tournaments?status=ACTIVE&page=0&size=20` | any |
+| `GET` | `/api/tournaments/{id}` | any |
+| `PUT` | `/api/tournaments/{id}` | `ADMIN` |
+| `PATCH` | `/api/tournaments/{id}/status` | `ADMIN` |
+| `DELETE` | `/api/tournaments/{id}` | `ADMIN` — only while `DRAFT` |
+| `POST` | `/api/tournaments/{id}/join` | `PLAYER` |
+| `GET` | `/api/tournaments/{id}/participants` | any |
+| `GET` | `/api/tournaments/{id}/participants/{userId}` | any — **enrolment check used by Prediction Service** |
+
+Tournament representation:
+```json
+{
+  "id": "1",
+  "name": "Copa Oficina 2026",
+  "description": "Torneo interno",
+  "status": "ACTIVE",
+  "startDate": "2026-08-01",
+  "endDate": "2026-09-15",
+  "createdBy": "42",
+  "createdAt": "2026-07-20T10:00:00Z",
+  "updatedAt": "2026-07-26T09:00:00Z"
+}
+```
+`status` ∈ `DRAFT | ACTIVE | FINISHED | CANCELLED`.
+
+`GET /api/tournaments/{id}/participants/{userId}` → `200 { "userId": "42", "tournamentId": "1", "joinedAt": "..." }` or `404`. This single endpoint is how Prediction Service answers "is this user allowed to predict here".
+
+### Teams
+
+| Method | Path | Role |
+|--------|------|------|
+| `POST` | `/api/teams` | `ADMIN` |
+| `GET` | `/api/teams` | any |
+| `GET` | `/api/teams/{id}` | any |
+| `PUT` | `/api/teams/{id}` | `ADMIN` |
+| `POST` | `/api/tournaments/{id}/teams` | `ADMIN` — body `{ "teamIds": ["1","2"] }` |
+| `GET` | `/api/tournaments/{id}/teams` | any |
+
+```json
+{ "id": "7", "name": "Club Atlético Central", "shortName": "CAC", "country": "AR", "logoUrl": "https://..." }
+```
+
+### Groups and phases
+
+| Method | Path | Role |
+|--------|------|------|
+| `POST` | `/api/tournaments/{id}/groups` | `ADMIN` |
+| `GET` | `/api/tournaments/{id}/groups` | any |
+| `POST` | `/api/groups/{groupId}/teams` | `ADMIN` — body `{ "teamIds": ["1","2"] }` |
+| `GET` | `/api/groups/{groupId}/teams` | any |
+| `POST` | `/api/tournaments/{id}/phases` | `ADMIN` |
+| `GET` | `/api/tournaments/{id}/phases` | any |
+
+```json
+{ "id": "3", "tournamentId": "1", "name": "Grupo A", "displayOrder": 1 }
+{ "id": "5", "tournamentId": "1", "name": "Semifinal", "type": "SEMI_FINAL", "displayOrder": 4 }
+```
+`type` ∈ `GROUP_STAGE | ROUND_OF_16 | QUARTER_FINAL | SEMI_FINAL | THIRD_PLACE | FINAL`.
+
+### Matches
+
+| Method | Path | Role |
+|--------|------|------|
+| `POST` | `/api/tournaments/{id}/matches` | `ADMIN` |
+| `GET` | `/api/tournaments/{id}/matches?status=SCHEDULED` | any |
+| `GET` | `/api/matches/{id}` | any — **used by Prediction Service on cache miss** |
+| `PUT` | `/api/matches/{id}` | `ADMIN` |
+| `PUT` | `/api/matches/{id}/result` | `ADMIN` |
+
+Match representation:
+```json
+{
+  "id": "99",
+  "tournamentId": "1",
+  "groupId": "3",
+  "phaseId": null,
+  "homeTeam": { "id": "7", "name": "Club Atlético Central", "shortName": "CAC" },
+  "awayTeam": { "id": "8", "name": "Deportivo Norte", "shortName": "DPN" },
+  "startTime": "2026-08-14T18:30:00Z",
+  "status": "SCHEDULED",
+  "homeScore": null,
+  "awayScore": null,
+  "predictionsOpen": true
+}
+```
+Exactly one of `groupId` / `phaseId` is non-null. `status` ∈ `SCHEDULED | IN_PROGRESS | FINISHED | POSTPONED | CANCELLED`.
+
+`predictionsOpen` is computed server-side as `status == SCHEDULED && now < startTime`. **Prediction Service trusts this field and never recomputes the lock from its own clock.** One clock, one answer.
+
+**`PUT /api/matches/{id}/result`**
+```json
+{ "homeScore": 2, "awayScore": 1 }
+```
+Sets `status` to `FINISHED` and publishes `match.finished`. Scores are integers `0..99`. Re-submitting a corrected result republishes the event — Score Service is idempotent and will recompute.
+
+---
+
+## Prediction Service — `/api/predictions`
+
+| Method | Path | Role |
+|--------|------|------|
+| `POST` | `/api/predictions` | `PLAYER` |
+| `PUT` | `/api/predictions/{id}` | `PLAYER` — own only |
+| `GET` | `/api/predictions/me?tournamentId=1` | `PLAYER` |
+| `GET` | `/api/predictions/me/match/{matchId}` | `PLAYER` |
+| `GET` | `/api/predictions/match/{matchId}` | `ADMIN` or service — **used by Score Service** |
+| `GET` | `/api/predictions/user/{userId}/tournament/{tid}` | any |
+
+**`POST /api/predictions`**
+```json
+{ "matchId": "99", "homeScore": 2, "awayScore": 1 }
+```
+The user comes from the JWT `sub`. **`userId` is never accepted in the body.**
+
+Validation order — fail fast, cheapest first:
+1. `homeScore`, `awayScore` are integers `0..99` → else `400`
+2. Match exists (local cache, else `GET /api/matches/{id}`) → else `404`
+3. `match.predictionsOpen == true` → else `409 PREDICTION_LOCKED`
+4. Tournament is `ACTIVE` → else `409 TOURNAMENT_NOT_ACTIVE`
+5. User is enrolled (`GET /api/tournaments/{tid}/participants/{userId}`) → else `403 NOT_ENROLLED`
+6. Insert; unique index on `(userId, matchId)` → duplicate is `409 DUPLICATE_PREDICTION`
+
+If step 2 or 5 cannot be answered because Tournament Service is unavailable, respond `503 DOWNSTREAM_UNAVAILABLE`. Never accept a prediction you could not validate.
+
+Prediction representation:
+```json
+{
+  "id": "68a1f2c3d4e5f6a7b8c9d0e1",
+  "userId": "42",
+  "tournamentId": "1",
+  "matchId": "99",
+  "predictionType": "EXACT_SCORE",
+  "homeScore": 2,
+  "awayScore": 1,
+  "derivedOutcome": "HOME_WIN",
+  "locked": false,
+  "createdAt": "2026-08-10T12:00:00Z",
+  "updatedAt": "2026-08-11T09:30:00Z"
+}
+```
+`derivedOutcome` ∈ `HOME_WIN | DRAW | AWAY_WIN`, computed from the scores — stored denormalised so Score Service does not have to derive it, but never accepted as input.
+
+`predictionType` is `EXACT_SCORE` for every v1 document. The field exists so future types slot in without a migration.
+
+`GET /api/predictions/match/{matchId}` returns an unpaginated array. Bounded by participant count; acceptable at this scale.
+
+---
+
+## Score Service — `/api/rankings`
+
+| Method | Path | Role |
+|--------|------|------|
+| `GET` | `/api/rankings/tournament/{tournamentId}?page=0&size=50` | any |
+| `GET` | `/api/rankings/global?page=0&size=50` | any |
+| `GET` | `/api/rankings/user/{userId}` | any |
+| `POST` | `/api/rankings/recalculate/match/{matchId}` | `ADMIN` — manual replay |
+| `POST` | `/api/rankings/recalculate/tournament/{tid}` | `ADMIN` — manual replay |
+
+Tournament ranking entry:
+```json
+{
+  "position": 1,
+  "userId": "42",
+  "username": "maxi",
+  "points": 17,
+  "hits": 9,
+  "exactHits": 4,
+  "predictionsScored": 12,
+  "accuracy": 0.75
+}
+```
+
+Global ranking entry:
+```json
+{
+  "position": 1,
+  "userId": "42",
+  "username": "maxi",
+  "totalPoints": 54,
+  "tournamentsPlayed": 3,
+  "totalHits": 28,
+  "exactHits": 11,
+  "predictionsScored": 40,
+  "accuracy": 0.70,
+  "averagePointsPerTournament": 18.0
+}
+```
+
+`accuracy` = `hits / predictionsScored`, `0` when `predictionsScored` is `0`. `position` is computed at query time from the sorted result, never stored.
+
+Tie-break (both rankings): points desc → exactHits desc → hits desc → predictionsScored asc → username asc.
+
+The recalculate endpoints are the escape hatch for a lost event. They must be safe to call at any time, any number of times.
+
+---
+
+## Events — RabbitMQ
+
+Topic exchange **`scoregrid.events`**, durable. Every message is a persistent JSON message.
+
+### Envelope
+
+Every event body has the same outer shape:
+
+```json
+{
+  "eventId": "3f9a2c1e-6b0d-4a7e-9c11-2d5f8a0b7e43",
+  "eventType": "match.finished",
+  "occurredAt": "2026-08-14T20:25:00Z",
+  "version": 1,
+  "payload": { }
+}
+```
+
+`eventId` is a UUID. **Consumers deduplicate on it or are inherently idempotent.** Score Service is the latter: replaying `match.finished` replaces a document rather than incrementing anything.
+
+### Bindings
+
+| Routing key | Exchange → queue | Consumer | DLQ |
+|-------------|------------------|----------|-----|
+| `match.scheduled` | `scoregrid.events` → `prediction.match-cache` | prediction | `prediction.match-cache.dlq` |
+| `match.updated` | `scoregrid.events` → `prediction.match-cache` | prediction | `prediction.match-cache.dlq` |
+| `match.finished` | `scoregrid.events` → `score.match-finished` | score | `score.match-finished.dlq` |
+| `prediction.created` | `scoregrid.events` → *(none in v1)* | — | — |
+| `prediction.updated` | `scoregrid.events` → *(none in v1)* | — | — |
+| `score.calculated` | `scoregrid.events` → *(none in v1)* | — | — |
+
+Queues are durable. Each has `x-dead-letter-exchange: scoregrid.dlx` and a per-queue DLQ. Consumers retry three times with exponential backoff (1s, 2s, 4s) before dead-lettering.
+
+> Publishing an event with no consumer is intentional. `prediction.*` and `score.calculated` exist so the notification service can be added later without modifying the publisher. Declaring the binding is a one-line change in the new service.
+
+### Payloads
+
+**`match.scheduled`** / **`match.updated`** — published by tournament-service
+```json
+{
+  "matchId": "99",
+  "tournamentId": "1",
+  "tournamentStatus": "ACTIVE",
+  "groupId": "3",
+  "phaseId": null,
+  "homeTeamId": "7",
+  "awayTeamId": "8",
+  "startTime": "2026-08-14T18:30:00Z",
+  "status": "SCHEDULED"
+}
+```
+Published on match creation, and on any change to `startTime` or `status`. This is what keeps Prediction Service's match cache warm so the lock check costs nothing.
+
+**`match.finished`** — published by tournament-service
+```json
+{
+  "matchId": "99",
+  "tournamentId": "1",
+  "homeTeamId": "7",
+  "awayTeamId": "8",
+  "homeScore": 2,
+  "awayScore": 1,
+  "outcome": "HOME_WIN",
+  "finishedAt": "2026-08-14T20:25:00Z"
+}
+```
+`outcome` is derived and included so Score Service never re-derives the source of truth.
+
+**`prediction.created`** / **`prediction.updated`** — published by prediction-service
+```json
+{
+  "predictionId": "68a1f2c3d4e5f6a7b8c9d0e1",
+  "userId": "42",
+  "tournamentId": "1",
+  "matchId": "99",
+  "homeScore": 2,
+  "awayScore": 1,
+  "derivedOutcome": "HOME_WIN"
+}
+```
+
+**`score.calculated`** — published by score-service
+```json
+{
+  "matchId": "99",
+  "tournamentId": "1",
+  "scoredPredictions": 18,
+  "totalPointsAwarded": 24,
+  "calculatedAt": "2026-08-14T20:25:03Z"
+}
+```
+
+---
+
+## Scoring rule (v1)
+
+Single implementation of a `ScoringRule` port, so a second rule is a new class and a configuration value, not a rewrite.
+
+```
+exact  = predicted.home == actual.home && predicted.away == actual.away   -> 3 points
+outcome= sign(predicted.home - predicted.away) == sign(actual.home - actual.away) -> 1 point
+else                                                                       -> 0 points
+```
+
+`exact` implies `outcome`; award **3, not 4**. A prediction counts as a `hit` when points > 0, and as an `exactHit` when points == 3.
+
+Worked examples:
+
+| Predicted | Actual | Points | hit | exactHit |
+|-----------|--------|--------|-----|----------|
+| 2–1 | 2–1 | 3 | yes | yes |
+| 2–1 | 3–0 | 1 | yes | no |
+| 1–1 | 2–2 | 1 | yes | no |
+| 2–1 | 1–2 | 0 | no | no |
+| 0–0 | 0–0 | 3 | yes | yes |
+
+---
+
+## Stubbing while you wait
+
+Nobody blocks on an unfinished service. Until the real one is up:
+
+| You are building | Stub | How |
+|------------------|------|-----|
+| prediction-service | tournament-service | WireMock stub for `GET /api/matches/{id}` and the participants check |
+| score-service | prediction-service | WireMock stub for `GET /api/predictions/match/{id}` |
+| any service | auth-service | Generate a test JWT with the shared secret in a test fixture; no HTTP call needed |
+| frontend | everything | MSW (Mock Service Worker) handlers built from the examples in this document |
+
+Every JSON example above is copy-pasteable as a fixture. That is why they are complete rather than abbreviated.
+
+---
+
+## Changing this document
+
+1. Open a PR touching `docs/contracts.md` **only**.
+2. All three developers approve.
+3. Bump the event `version` field if an event payload changed.
+4. Update stubs and fixtures in the same PR.
+
+A contract change merged without the other two knowing is the fastest way to lose a day.
