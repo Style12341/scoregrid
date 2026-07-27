@@ -60,7 +60,11 @@ Not style preferences. Breaking any of these breaks the architecture.
 7. **The unique index on `(userId, matchId)` is the duplicate-prediction rule** — not a read-then-write check, which loses under concurrency.
 8. **Never accept a write you could not validate.** If a downstream check cannot be answered because a service is down, return `503`. Do not assume the happy path.
 9. **No secrets in the repository.** `.env` is gitignored; `.env.example` holds placeholders only.
-10. **All code, identifiers, comments, commit messages, API fields and UI copy are in English.** The original proposal is in Spanish; the codebase is not.
+10. **Code is English. The user interface is Spanish.** The line runs at the screen, not at the file.
+    - **English:** identifiers, types, comments, commit messages, branch names, log output, error codes (`PREDICTION_LOCKED`), API field names (`predictionsOpen`), test names, documentation.
+    - **Spanish:** every string a participant reads — nav labels, buttons, headings, form labels, validation messages, empty/error/loading copy, dates and number formatting.
+    - The register is **Rioplatense** (voseo: "Ingresá", "Pronosticá"), matching `scoregrid_mock_interfaces_html.html`. The mock is the copy reference; when a screen exists there, reuse its wording rather than inventing a synonym.
+    - A Spanish identifier and an English button are both wrong. An error code stays `NOT_ENROLLED` on the wire and is rendered to the user as "No estás inscripto en este torneo".
 
 ---
 
@@ -158,8 +162,26 @@ Work is split three ways ([`docs/workstreams.md`](docs/workstreams.md)). Editing
 | `services/prediction-service/**`, `services/score-service/**` | **Werlen** (Stream C) |
 | `compose.yaml`, `infra/**`, `.env.example`, `.github/**` | **Bernard** — ask first |
 | `frontend/src/App.tsx`, `frontend/src/lib/**`, `frontend/src/auth/**` | **Bernard** — shared routing and client, ask first |
+| `frontend/src/components/**`, `frontend/src/index.css` | **Bernard** — the design system. **Import it; do not edit it.** Need a variant that does not exist? Ask, and it gets added once for all three. |
 | `frontend/src/features/<area>/**` | The stream owning that area |
 | `docs/contracts.md` | All three — PR, all three approve, bump event `version` if a payload changed |
+
+### The design system
+
+Built on Tailwind v4 + shadcn/ui, restyled to `scoregrid_mock_interfaces_html.html`. Design tokens live in `frontend/src/index.css` — change a colour there, never in a component.
+
+| Import | What you get |
+|--------|--------------|
+| `@/components/ui/*` | shadcn primitives already themed: `Button`, `Card`, `Input`, `Label`, `Table`, `Badge`, `Tabs`, `Select`, `Dialog`, `Separator` |
+| `@/components/layout/AppLayout` | Sidebar + topbar shell. Applied by the router; screens render inside it |
+| `@/components/layout/page-header` | `usePageHeader(title, subtitle)` — sets the topbar heading from inside a screen |
+| `@/components/common/states` | `EmptyState`, `ErrorState`, `LoadingState` — use these three, do not invent a fourth |
+| `@/components/common/FormField` | Label + control + error, with the `aria-describedby` / `aria-invalid` wiring done |
+| `@/components/common/StatusBadge` | `TournamentStatusBadge`, `MatchStatusBadge`, `PredictionLockBadge` — contract status to Spanish label and colour, in one place |
+| `@/components/common/MetricCard` | `MetricCard`, `MiniStat` |
+| `@/components/common/PageTitle` | Section heading with an action on the right |
+
+Non-obvious variants, both from the mock: `Button` has `variant="success"` (green, confirm) and `size="block"` (full width); `Badge` has `active` / `draft` / `finished` / `closed`; `TabsList` has `variant="pill"`.
 
 If the task spans another owner's files, say so and propose the split rather than editing across the boundary.
 
