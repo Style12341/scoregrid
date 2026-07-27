@@ -45,7 +45,7 @@ Backend
 - The `SecurityConfig` that the other four services consume — you define how a JWT becomes an authenticated principal with roles, and the other two copy it.
 
 Platform
-- `compose.yaml` for the whole system: two Postgres, two Mongo, RabbitMQ, five services, frontend. Health checks and `depends_on: condition: service_healthy`.
+- `compose.yaml` for the whole system: one Postgres and one MongoDB (each holding one database per service, with per-service logins), RabbitMQ, five services, frontend. Health checks and `depends_on: condition: service_healthy`.
 - `infra/`: Prometheus scrape config, Grafana provisioning + one dashboard per service, Loki + Promtail for centralised JSON logs. All behind the `observability` Compose profile.
 - CI: build and test all five services plus the frontend on every PR.
 

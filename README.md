@@ -79,6 +79,18 @@ Wait for all containers to report healthy:
 docker compose ps
 ```
 
+### Day-to-day: databases in Docker, services from the console
+
+Most of the time you do not want five JVMs in containers. Start the infrastructure only and run the service you are working on directly — it picks up the right database, user and port from `application.yml` with no environment set up:
+
+```bash
+docker compose up -d postgres mongodb rabbitmq
+
+cd services/auth-service && ./mvnw spring-boot:run
+```
+
+Storage is one Postgres container and one MongoDB container, each holding one database per service with its own login. See [`docs/start.md`](docs/start.md#one-instance-per-engine-one-database-per-service) for why, and for how to re-provision.
+
 | What | Where |
 |------|-------|
 | Frontend | http://localhost:3000 |

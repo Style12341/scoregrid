@@ -74,7 +74,7 @@ The source document contradicts itself in four places. Each was resolved before 
 | # | Conflict in source | Decision | Why |
 |---|--------------------|----------|-----|
 | 1 | "Alcance delimitado" and the UI mockups show goal inputs per team; §6.6 recommends starting with basic 1X2 | **Exact score input, tiered scoring** | The user always enters home and away goals. Outcome (home win / draw / away win) is *derived* from the score, so 1X2 is a subset — nothing is lost, and it matches the mockups the stakeholder already signed off on. |
-| 2 | "Score Service" on MongoDB (Alcance, summary table) vs "Ranking Service" on PostgreSQL (§9.5, §15.4) | **`score-service`, MongoDB** | Follows the delimited scope and the summary table. Rankings are read-heavy denormalised snapshots, which is what a document store is good at. Keeps the polyglot requirement clean: two Postgres, two Mongo. Public endpoints stay `/rankings/**` — the service is named for what it *does*, the endpoints for what they *return*. |
+| 2 | "Score Service" on MongoDB (Alcance, summary table) vs "Ranking Service" on PostgreSQL (§9.5, §15.4) | **`score-service`, MongoDB** | Follows the delimited scope and the summary table. Rankings are read-heavy denormalised snapshots, which is what a document store is good at. Keeps the polyglot requirement clean: two SQL databases and two NoSQL databases, one instance per engine. Public endpoints stay `/rankings/**` — the service is named for what it *does*, the endpoints for what they *return*. |
 | 3 | API Gateway absent from the delimited scope, present in §8 and §9.1 | **In scope — Spring Cloud Gateway** | One entry point means the frontend holds one base URL, CORS is configured once, and JWT is validated at the edge before a request reaches any service. It also gives the three-way work split a clean seam. |
 | 4 | §81 says real results come from an external API with Resilience4J; the Alcance and every flow describe manual admin loading | **Manual loading, plus an external provider adapter behind a circuit breaker** | Manual loading is the guaranteed path and can never fail. The external adapter sits behind a `ResultProvider` port with retry and circuit breaker, so Resilience4J protects something real, and the system never blocks on a third party. |
 
@@ -199,10 +199,15 @@ flowchart TB
     PR["prediction-service<br/>:8083"]
     SC["score-service<br/>:8084"]
 
-    PGA[("postgres-auth")]
-    PGT[("postgres-tournament")]
-    MOP[("mongo-prediction")]
-    MOS[("mongo-score")]
+    subgraph PG["postgres — one instance"]
+      PGA[("scoregrid_auth")]
+      PGT[("scoregrid_tournament")]
+    end
+
+    subgraph MO["mongodb — one instance"]
+      MOP[("scoregrid_prediction")]
+      MOS[("scoregrid_score")]
+    end
 
     MQ{{"RabbitMQ<br/>scoregrid.events"}}
     EXT["External results API"]
@@ -356,7 +361,7 @@ The rule behind all of these: **never accept a write you cannot validate, and ne
 | Contract drift after freeze | Any contract change is a PR against `docs/contracts.md` that all three review before implementation. |
 | Distributed debugging burning the schedule | Trace ID propagation and centralised logs are built in the first milestone, not the last. |
 | Cross-service integration left until the end | Milestone 2 is an end-to-end vertical slice — one tournament, one match, one prediction, one score — before feature breadth. |
-| Docker Compose resource load on a laptop | Two Postgres, two Mongo, RabbitMQ, Prometheus, Grafana, Loki ≈ 4 GB. Observability stack is a separate Compose profile, off by default. |
+| Docker Compose resource load on a laptop | One Postgres, one Mongo, RabbitMQ, Prometheus, Grafana, Loki. The two SQL and two NoSQL databases share one instance per engine, isolated by per-service logins rather than by container — see [`start.md`](start.md#one-instance-per-engine-one-database-per-service). Observability is a separate Compose profile, off by default, and services can run from the IDE against infra alone. |
 | External results API needs a key nobody has | The adapter is behind a feature flag, disabled by default. Manual loading is the primary path and always works. |
 
 ---

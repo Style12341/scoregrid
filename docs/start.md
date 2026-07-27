@@ -117,7 +117,7 @@ cd frontend && npm i react-router-dom axios @tanstack/react-query
 
 ---
 
-## Three traps in this exact version combination
+## Four traps in this exact version combination
 
 All three were verified against the resolved dependency tree, not assumed. Each fails **silently** — no compile error, no startup warning — which is what makes them expensive.
 
@@ -155,6 +155,34 @@ new JacksonJsonMessageConverter()   // Jackson 3 — correct here
 ```
 
 The Jackson2 variant compiles only if you add Jackson 2 to the classpath yourself.
+
+### 4. MongoDB connection properties live under `spring.mongodb`, not `spring.data.mongodb`
+
+Boot 4.0 moved every MongoDB *connection* property out of `spring.data.mongodb.*`. The old names are deprecated at level `error` — they bind to nothing at all. The driver then uses its own default, `mongodb://localhost/test`, so the service starts cleanly and nothing complains until a query runs.
+
+```yaml
+spring:
+  mongodb:
+    uri: ${SPRING_MONGODB_URI:mongodb://prediction_service:scoregrid@localhost:27018/scoregrid_prediction?authSource=scoregrid_prediction}
+  data:
+    mongodb:
+      auto-index-creation: true      # did NOT move — still correct here
+```
+
+Moved: `uri`, `host`, `port`, `username`, `password`, `database`, `authentication-database`, `additional-hosts`, `protocol`, `replica-set-name`, `ssl.*`, and `uuid-representation` (now `spring.mongodb.representation.uuid`). Stayed: `auto-index-creation`, `repositories.type`.
+
+The environment variable is `SPRING_MONGODB_URI`. `SPRING_DATA_MONGODB_URI` is silently ignored.
+
+**Related:** the default readiness probe contains only `readinessState`, so a container happily reports healthy while its datastore is unreachable — which is exactly how this trap hides. Every data service therefore configures:
+
+```yaml
+management:
+  endpoint:
+    health:
+      group:
+        readiness:
+          include: readinessState, mongo    # or db, for the JPA services
+```
 
 ---
 
@@ -257,20 +285,40 @@ Three rules that keep this honest:
 |-----------|-------------|------------|
 | `frontend` | 5173 (dev) / 3000 | gateway |
 | `api-gateway` | 8080 | all services |
-| `auth-service` | 8081 | `postgres-auth` |
-| `tournament-service` | 8082 | `postgres-tournament`, `rabbitmq` |
-| `prediction-service` | 8083 | `mongo-prediction`, `rabbitmq` |
-| `score-service` | 8084 | `mongo-score`, `rabbitmq` |
-| `postgres-auth` | 5433 | — |
-| `postgres-tournament` | 5434 | — |
-| `mongo-prediction` | 27018 | — |
-| `mongo-score` | 27019 | — |
+| `auth-service` | 8081 | `postgres` |
+| `tournament-service` | 8082 | `postgres`, `rabbitmq` |
+| `prediction-service` | 8083 | `mongodb`, `rabbitmq` |
+| `score-service` | 8084 | `mongodb`, `rabbitmq` |
+| `postgres` | 5433 | — |
+| `mongodb` | 27018 | — |
 | `rabbitmq` | 5672, 15672 (UI) | — |
 | `prometheus` | 9090 | profile `observability` |
 | `grafana` | 3001 | profile `observability` |
 | `loki` | 3100 | profile `observability` |
 
-Host ports are offset (5433/5434, 27018/27019) so they never collide with a Postgres or Mongo already installed on a developer's machine. Inside the Compose network, services use standard ports and container names.
+Host ports are offset (5433, 27018) so they never collide with a Postgres or Mongo already installed on a developer's machine. Inside the Compose network, services use standard ports and container names.
+
+### One instance per engine, one database per service
+
+There is a single Postgres container and a single MongoDB container. Each holds one database per service, and each database has its own login:
+
+| Engine | Database | Login | Reachable by |
+|--------|----------|-------|--------------|
+| Postgres | `scoregrid_auth` | `auth_service` | `auth-service` only |
+| Postgres | `scoregrid_tournament` | `tournament_service` | `tournament-service` only |
+| MongoDB | `scoregrid_prediction` | `prediction_service` | `prediction-service` only |
+| MongoDB | `scoregrid_score` | `score_service` | `score-service` only |
+
+This satisfies requirement 6 (at least one SQL and one NoSQL store) without paying for four containers on a laptop. Hard rule 1 — a service touches only its own database — is still enforced, and not by convention:
+
+- **Postgres:** `CONNECT` is revoked from `PUBLIC` on every database and granted only to its owner. `auth_service` cannot open a connection to `scoregrid_tournament` at all. PostgreSQL has no cross-database joins.
+- **MongoDB:** authentication is enabled and each user has `readWrite` on exactly one database. `$lookup` cannot cross databases either.
+
+Provisioning runs once, on an empty volume, from `infra/postgres/init/` and `infra/mongo/init/`. Changing a database name, user or password afterwards needs the volume dropped:
+
+```bash
+docker compose down -v      # deletes all local data
+```
 
 `.env.example` — copy to `.env`, never commit `.env`. The file in the repository root is authoritative; this is an abridged view:
 
@@ -279,16 +327,28 @@ Host ports are offset (5433/5434, 27018/27019) so they never collide with a Post
 SCOREGRID_JWT_SECRET=change-me-min-32-bytes-base64
 SCOREGRID_JWT_TTL=PT24H
 
+# Instance superusers — used once to provision, never by a service
+POSTGRES_ROOT_USER=scoregrid
+POSTGRES_ROOT_PASSWORD=scoregrid
+MONGO_ROOT_USER=scoregrid
+MONGO_ROOT_PASSWORD=scoregrid
+
+# One database + one login per service
 POSTGRES_AUTH_DB=scoregrid_auth
-POSTGRES_AUTH_USER=scoregrid
+POSTGRES_AUTH_USER=auth_service
 POSTGRES_AUTH_PASSWORD=scoregrid
 
 POSTGRES_TOURNAMENT_DB=scoregrid_tournament
-POSTGRES_TOURNAMENT_USER=scoregrid
+POSTGRES_TOURNAMENT_USER=tournament_service
 POSTGRES_TOURNAMENT_PASSWORD=scoregrid
 
 MONGO_PREDICTION_DB=scoregrid_prediction
+MONGO_PREDICTION_USER=prediction_service
+MONGO_PREDICTION_PASSWORD=scoregrid
+
 MONGO_SCORE_DB=scoregrid_score
+MONGO_SCORE_USER=score_service
+MONGO_SCORE_PASSWORD=scoregrid
 
 RABBITMQ_USER=scoregrid
 RABBITMQ_PASSWORD=scoregrid
@@ -302,8 +362,9 @@ RESULTS_PROVIDER_API_KEY=
 ### Observability is a Compose profile
 
 ```bash
-docker compose up -d                          # 11 containers, ~2 GB
-docker compose --profile observability up -d  # + Prometheus, Grafana, Loki, Promtail
+docker compose up -d postgres mongodb rabbitmq  # infra only, ~400 MB
+docker compose up -d                            # 9 containers, ~1.6 GB
+docker compose --profile observability up -d    # + Prometheus, Grafana, Loki, Promtail
 ```
 
 Prometheus, Grafana and Loki are behind the `observability` profile so day-to-day development does not cost 2 extra GB of RAM. They are still part of the deliverable — they just are not always on.
