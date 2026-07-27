@@ -6,10 +6,18 @@ import jakarta.persistence.GeneratedValue;
 import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
+import lombok.Getter;
+import lombok.NoArgsConstructor;
 
+/**
+ * A role row. Seeded by {@code V1__create_users_roles.sql} with PLAYER and
+ * ADMIN; the application never inserts one.
+ */
 @Entity
 @Table(name = "roles")
-public class RoleEntity {
+@Getter
+@NoArgsConstructor
+class RoleEntity {
 
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
@@ -17,9 +25,4 @@ public class RoleEntity {
 
     @Column(nullable = false, unique = true, length = 50)
     private String name;
-
-    public RoleEntity() {}
-
-    public String getName() { return name; }
-    void setName(String name) { this.name = name; }
 }
