@@ -45,6 +45,8 @@ Verified working at scaffold time: all five services compile, the frontend build
 
 Stream C could not integrate against nothing, so it wrote the minimum stubs it needed inside `auth-service` and `tournament-service`. That was pragmatic and it unblocked the work, but it means **two people now own code they did not write**. Bernard and Paggi replace those stubs as part of their own streams — the stubs are not a head start, they are a placeholder that happens to compile.
 
+> **Stream C has an open review:** [`review-stream-c.md`](review-stream-c.md) — four blocking findings, including a tie-break comparator that ranks the *fewest* exact hits first, and an enrolment check that reports a downstream outage as `403 NOT_ENROLLED`. Werlen to action; nothing in his services has been changed by anyone else.
+
 **Outstanding, in rough dependency order:**
 
 1. **Bernard** — real `auth-service`: hexagonal structure, the error envelope on every failure path, and the three missing user endpoints. `GET /api/users/batch` is the urgent one: `score-service` already calls it and falls back to showing raw user IDs as usernames, so rankings render *plausibly wrong* rather than failing loudly.
