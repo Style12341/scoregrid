@@ -35,6 +35,9 @@ public class JoinTournamentUseCase implements JoinTournament {
         }
 
         if (participantRepository.exists(command.tournamentId(), command.userId())) {
+            // Error code CONFLICT is tournament-service internal (not in cross-service
+            // error list at docs/contracts.md). The frontend branches on HTTP 409, not
+            // the error string, so internal codes are fine as long as the status is correct.
             throw new DomainException(ErrorKind.CONFLICT, "CONFLICT",
                     "User " + command.userId() + " is already enrolled in tournament " + command.tournamentId());
         }

@@ -1,3 +1,10 @@
+// STREAM C STUB — Replace when building match feature (Paggi, Stream B).
+// Known issues to fix during replacement:
+//   - Line 44: Re-derives predictionsOpen from Instant.now() — must trust tournament-service's computation (AGENTS.md hard rule 5)
+//   - Lines 69-103: PUT /api/matches/{id}/result missing @PreAuthorize("hasRole('ADMIN')") — contracts.md requires ADMIN
+//   - Lines 42, 72: Raw ResponseEntity.notFound() bypasses GlobalExceptionHandler — use DomainException(NOT_FOUND, "NOT_FOUND", ...)
+//   - See docs/review-stream-c.md findings C5 and C8 for the same patterns caught in prediction-service
+
 package com.scoregrid.tournament.match.infrastructure.web;
 
 import com.scoregrid.tournament.match.infrastructure.persistence.MatchEntity;

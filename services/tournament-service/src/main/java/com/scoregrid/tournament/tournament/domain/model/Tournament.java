@@ -87,13 +87,13 @@ public class Tournament {
 
     private void validateActivation() {
         if (startDate == null) {
-            throw new IllegalStateException("Cannot activate: startDate is required.");
+            throw new IllegalArgumentException("Cannot activate: startDate is required.");
         }
         if (!startDate.isAfter(LocalDate.now())) {
-            throw new IllegalStateException("Cannot activate: startDate must be in the future.");
+            throw new IllegalArgumentException("Cannot activate: startDate must be in the future.");
         }
         if (endDate != null && endDate.isBefore(startDate)) {
-            throw new IllegalStateException("Cannot activate: endDate must be on or after startDate.");
+            throw new IllegalArgumentException("Cannot activate: endDate must be on or after startDate.");
         }
     }
 

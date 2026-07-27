@@ -25,6 +25,8 @@ public class TransitionTournamentStatusUseCase implements TransitionTournamentSt
                         "Tournament not found: " + command.tournamentId()));
         try {
             tournament.transitionTo(command.status());
+        } catch (IllegalArgumentException e) {
+            throw new DomainException(ErrorKind.VALIDATION, "VALIDATION_FAILED", e.getMessage());
         } catch (IllegalStateException e) {
             throw new DomainException(ErrorKind.CONFLICT, "TOURNAMENT_NOT_ACTIVE", e.getMessage());
         }
