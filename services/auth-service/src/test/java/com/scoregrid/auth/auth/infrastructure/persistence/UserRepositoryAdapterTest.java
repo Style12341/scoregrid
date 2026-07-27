@@ -31,11 +31,16 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
  * PostgreSQL's, and it is the actual duplicate rule.
  *
  * <p>Requires Docker. See AGENTS.md section 7.
+ *
+ * <p>Named {@code ...Test} and not {@code ...IT} deliberately. Surefire only
+ * collects {@code *Test}; {@code *IT} belongs to Failsafe, which is not in any
+ * POM here — so an {@code IT} suffix runs under neither {@code ./mvnw test} nor
+ * CI's {@code ./mvnw verify}. It just silently never runs.
  */
 @DataJpaTest
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import({TestcontainersConfiguration.class, UserRepositoryAdapter.class, UserMapperImpl.class})
-class UserRepositoryAdapterIT {
+class UserRepositoryAdapterTest {
 
     @Autowired
     private UserRepositoryAdapter adapter;

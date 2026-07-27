@@ -174,6 +174,9 @@ Error codes are part of the contract: `VALIDATION_FAILED`, `UNAUTHORIZED`, `FORB
 - Domain and application logic: plain unit tests, no Spring context. These run in milliseconds.
 - Controllers: `@WebMvcTest`. Persistence: `@DataJpaTest` / `@DataMongoTest`.
 - Anything touching a real database or queue: **Testcontainers, not H2.** H2 does not behave like PostgreSQL where it matters.
+- **Name every test class `*Test`, never `*IT`.** Surefire only collects `*Test`; `*IT` belongs to Failsafe, and no POM here declares Failsafe. A class named `SomethingIT` runs under neither `./mvnw test` nor CI's `./mvnw verify` — it is silently skipped, and the suite still reports green. Verified the hard way.
+- Pin Testcontainers images (`postgres:17-alpine`, not `postgres:latest`) so a major-version bump cannot change behaviour with no commit.
+- A green suite proves nothing until you have watched it go red. When a test guards something that matters — an authorisation rule, a field that must not be serialised — break the code deliberately once and confirm that test, and not some unrelated one, is what fails.
 - The scoring rule table in [`docs/contracts.md`](docs/contracts.md#scoring-rule-v1) is a parameterised test. Implement it verbatim.
 
 ---

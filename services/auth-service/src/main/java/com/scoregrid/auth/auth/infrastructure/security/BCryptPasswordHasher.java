@@ -7,17 +7,24 @@ import org.springframework.stereotype.Component;
 @Component
 class BCryptPasswordHasher implements PasswordHasher {
 
-    /**
-     * A valid BCrypt hash of a value nothing will ever submit, used to spend the
-     * same work as a real comparison when no account was found.
-     */
-    private static final String DUMMY_HASH =
-            "$2a$10$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy";
+    private static final String DUMMY_PLAINTEXT = "timing-equaliser";
 
     private final PasswordEncoder passwordEncoder;
 
+    /**
+     * A real hash of a value nothing will ever submit, used to spend the same
+     * work as a genuine comparison when no account was found.
+     *
+     * <p>Generated at startup rather than hardcoded: a pasted literal that is
+     * not a well-formed BCrypt hash makes {@code matches} return false
+     * immediately instead of hashing, which silently removes the timing defence
+     * it exists to provide. Costs one hash per application start.
+     */
+    private final String dummyHash;
+
     BCryptPasswordHasher(PasswordEncoder passwordEncoder) {
         this.passwordEncoder = passwordEncoder;
+        this.dummyHash = passwordEncoder.encode(DUMMY_PLAINTEXT);
     }
 
     @Override
@@ -32,6 +39,6 @@ class BCryptPasswordHasher implements PasswordHasher {
 
     @Override
     public void burnComparableTime() {
-        passwordEncoder.matches("timing-equaliser", DUMMY_HASH);
+        passwordEncoder.matches(DUMMY_PLAINTEXT, dummyHash);
     }
 }
