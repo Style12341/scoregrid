@@ -1,6 +1,8 @@
 package com.scoregrid.prediction.shared.config;
 
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
+import io.github.resilience4j.retry.Retry;
+import io.github.resilience4j.retry.RetryConfig;
 import io.github.resilience4j.timelimiter.TimeLimiterConfig;
 import org.springframework.cloud.circuitbreaker.resilience4j.Resilience4JCircuitBreakerFactory;
 import org.springframework.cloud.circuitbreaker.resilience4j.Resilience4JConfigBuilder;
@@ -64,5 +66,15 @@ public class ResilienceConfig {
                 .timeLimiterConfig(TimeLimiterConfig.custom()
                         .timeoutDuration(Duration.ofSeconds(3))
                         .build()), TOURNAMENT_CLIENT);
+    }
+
+    @Bean
+    Retry tournamentClientRetry() {
+        return Retry.of(TOURNAMENT_CLIENT, RetryConfig.custom()
+                .maxAttempts(3)
+                .waitDuration(Duration.ofMillis(100))
+                .intervalFunction(attempt -> (long) (100 * Math.pow(2, attempt)))
+                .retryExceptions(RuntimeException.class)
+                .build());
     }
 }

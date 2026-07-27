@@ -5,6 +5,9 @@ import { AppLayout } from "./components/layout/AppLayout";
 import { EmptyState } from "./components/common/states";
 import { usePageHeader } from "./components/layout/page-header";
 import { LoginPage } from "./features/auth/LoginPage";
+import { PredictionPage } from "./features/predictions/PredictionPage";
+import { MyPredictionsPage } from "./features/predictions/MyPredictionsPage";
+import { AdminResultsPage } from "./features/admin/AdminResultsPage";
 
 /**
  * Route map for ScoreGrid.
@@ -63,11 +66,11 @@ export default function App() {
 
               <Route
                 path="/predictions"
-                element={<Placeholder title="Mis pronósticos" owner="Stream C — Werlen" />}
+                element={<MyPredictionsPage />}
               />
               <Route
                 path="/matches/:matchId/predict"
-                element={<Placeholder title="Cargar pronóstico" owner="Stream C — Werlen" />}
+                element={<PredictionPage />}
               />
             </Route>
           </Route>
@@ -81,7 +84,7 @@ export default function App() {
               />
               <Route
                 path="/admin/results"
-                element={<Placeholder title="Cargar resultados" owner="Stream C — Werlen" />}
+                element={<AdminResultsPage />}
               />
             </Route>
           </Route>
