@@ -10,7 +10,7 @@ Instructions for AI coding agents working in the ScoreGrid repository.
 
 ScoreGrid is a football prediction pool: admins build tournaments with group stages and knockout phases, participants predict match scores, the system scores predictions automatically and maintains per-tournament and global rankings.
 
-Five Spring Boot services, a React frontend, two PostgreSQL databases, two MongoDB databases, RabbitMQ, all under one Docker Compose.
+Five Spring Boot services, a React frontend, two PostgreSQL databases and two MongoDB databases (sharing one instance per engine, isolated by per-service logins), RabbitMQ, all under one Docker Compose.
 
 | Service | Port | Owns | Database |
 |---------|------|------|----------|
@@ -20,17 +20,22 @@ Five Spring Boot services, a React frontend, two PostgreSQL databases, two Mongo
 | `prediction-service` | 8083 | Predictions, kickoff lock | MongoDB |
 | `score-service` | 8084 | Scoring, tournament ranking, global ranking | MongoDB |
 
-**Stack (verified, not assumed):** Java 21 · Spring Boot 4.1.0 · Spring Cloud 2025.1.2 · Spring Cloud Gateway 5.0.2 · Spring AMQP 4.1.0 · Maven (one independent POM per service, no aggregator) · React 19 · Vite 8 · TypeScript 6.
+**Stack (verified, not assumed):** Java 21 · Spring Boot 4.1.0 · Spring Cloud 2025.1.2 · Spring Cloud Gateway 5.0.2 · Spring AMQP 4.1.0 · Maven (one independent POM per service, no aggregator) · React 19 · Vite 8 · TypeScript 6 · Tailwind CSS 4 · shadcn/ui (Radix primitives).
 
 ---
 
 ## 2. Current state
 
-Scaffolding is complete and verified: all five services compile, the frontend builds, `docker compose config` validates.
+Scaffolding is complete and verified: all five services compile, the frontend builds, `docker compose up -d` reaches all-healthy with every datastore reporting `UP`.
 
-**Exists:** service skeletons, `shared/` package (security, error handling, current-user), `ResilienceConfig`, `RabbitConfig` with the full messaging topology, `application.yml` per service, `compose.yaml`, `infra/` observability config, frontend with axios client + auth context + route guard + route map.
+**Exists:**
+- Service skeletons, `shared/` package (security, error handling, current-user), `ResilienceConfig`, `RabbitConfig` with the full messaging topology, `application.yml` per service.
+- `compose.yaml` — one Postgres and one MongoDB, each with one database and one login per service, provisioned from `infra/postgres/init` and `infra/mongo/init`; RabbitMQ; five services; frontend. `infra/` also holds the observability config.
+- Git repository and `.github/workflows/ci.yml` — five services in a matrix, frontend lint + build, compose validation on both profiles.
+- Frontend: axios client, auth context, route guard, route map, and the **design system** (Tailwind v4 + shadcn/ui restyled to the mock) — see §8.
+- One real screen: Login, wired to `auth-service` via `AuthContext`.
 
-**Does not exist:** any entity, controller, repository, use case, Flyway migration, Mongo document, or real screen. That is feature work — see §8.
+**Does not exist:** any entity, controller, repository, use case, Flyway migration or Mongo document, and every screen except Login. That is feature work — see §8.
 
 ---
 
@@ -52,6 +57,7 @@ Scaffolding is complete and verified: all five services compile, the frontend bu
 Not style preferences. Breaking any of these breaks the architecture.
 
 1. **A service touches only its own database.** No cross-service datasource, no shared schema, no "just this one join". Data owned elsewhere comes from that service's API or from an event.
+   Postgres and MongoDB each run as a *single* instance holding one database per service. That is a container-count decision, not a boundary decision: every database has its own login, `CONNECT` is revoked from `PUBLIC` in Postgres, Mongo runs authenticated with `readWrite` scoped to one database, and neither engine can query across databases. Connecting with another service's credentials to "just check something" defeats the only thing holding the boundary up. See [`docs/start.md`](docs/start.md#one-instance-per-engine-one-database-per-service).
 2. **No shared Java library for DTOs, events or domain types.** Each service owns its own copy of the payload classes. Deliberate — rationale in [`docs/PRD.md`](docs/PRD.md#alternatives-considered). Do not "clean this up" by extracting a common module.
 3. **The acting user comes from the JWT `sub` claim**, via the `CurrentUser` bean. Never from a request body, query parameter or header. A `userId` field in a request payload is a privilege escalation bug.
 4. **Scoring is idempotent.** The per-match score document is *replaced*; rankings are *derived* from score documents. Never increment a running total. Re-scoring a corrected result or a redelivered message must produce identical numbers.
@@ -60,6 +66,7 @@ Not style preferences. Breaking any of these breaks the architecture.
 7. **The unique index on `(userId, matchId)` is the duplicate-prediction rule** — not a read-then-write check, which loses under concurrency.
 8. **Never accept a write you could not validate.** If a downstream check cannot be answered because a service is down, return `503`. Do not assume the happy path.
 9. **No secrets in the repository.** `.env` is gitignored; `.env.example` holds placeholders only.
+   One deliberate exception, and it is not a secret: `application.yml` carries a dev-only default JWT secret (`dev-only-insecure-secret-do-not-deploy-anywhere-real`) so `./mvnw spring-boot:run` works in a fresh terminal and all five services agree on a locally minted token. `compose.yaml` still uses `${SCOREGRID_JWT_SECRET:?}`, so anything containerised hard-fails without a real value. Do not copy this pattern for database passwords or provider API keys.
 10. **Code is English. The user interface is Spanish.** The line runs at the screen, not at the file.
     - **English:** identifiers, types, comments, commit messages, branch names, log output, error codes (`PREDICTION_LOCKED`), API field names (`predictionsOpen`), test names, documentation.
     - **Spanish:** every string a participant reads — nav labels, buttons, headings, form labels, validation messages, empty/error/loading copy, dates and number formatting.
@@ -83,6 +90,21 @@ All three fail **silently** — no compile error, no warning. Verified against t
 - Retry needs an explicit `resilience4j-retry` dependency or a `RestClient` interceptor.
 
 **Spring AMQP: use `JacksonJsonMessageConverter`,** not `Jackson2JsonMessageConverter`. Boot 4 ships Jackson 3; the `Jackson2` class is the legacy one.
+
+**MongoDB connection properties moved to `spring.mongodb.*`.** In Boot 4.0 every *connection* property — `uri`, `host`, `port`, `username`, `password`, `database`, `authentication-database`, `replica-set-name`, `ssl.*` — moved out of `spring.data.mongodb.*`. The old names are deprecated at level `error`: they bind to **nothing**. The driver then falls back to its own default, `mongodb://localhost/test`, so the application starts normally and only `/actuator/health` reveals `mongo: DOWN`. The environment variable is `SPRING_MONGODB_URI`, not `SPRING_DATA_MONGODB_URI`.
+
+The split is the trap: `spring.data.mongodb.auto-index-creation` did **not** move and is still correct where it is. Half of one YAML block relocated, half did not.
+
+```yaml
+spring:
+  mongodb:
+    uri: ${SPRING_MONGODB_URI:mongodb://user:pw@localhost:27018/db?authSource=db}
+  data:
+    mongodb:
+      auto-index-creation: true      # stays here
+```
+
+**A readiness probe that excludes the datastore will lie to you.** `/actuator/health/readiness` contains only `readinessState` by default, so a container reports healthy while every query fails. Each data service adds the relevant indicator to the readiness group — see `management.endpoint.health.group.readiness` in its `application.yml`. This is how the property change above went unnoticed in the first place.
 
 ---
 
@@ -128,12 +150,19 @@ Error codes are part of the contract: `VALIDATION_FAILED`, `UNAUTHORIZED`, `FORB
 cd services/<service> && ./mvnw test
 cd services/<service> && ./mvnw spring-boot:run
 
-# Whole system
+# Infra only — the usual loop: databases in Docker, services from the console
 cp .env.example .env               # then set SCOREGRID_JWT_SECRET
+docker compose up -d postgres mongodb rabbitmq
+cd services/<service> && ./mvnw spring-boot:run
+
+# Whole system
 docker compose up -d --build       # first build: 5–10 min
 docker compose ps                  # wait for all healthy
 docker compose logs -f <service>
 docker compose --profile observability up -d
+
+# Re-provision databases from scratch (drops all local data)
+docker compose down -v && docker compose up -d postgres mongodb
 
 # Frontend
 cd frontend && npm run dev         # :5173

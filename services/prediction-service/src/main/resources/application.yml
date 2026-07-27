@@ -2,9 +2,22 @@ spring:
   application:
     name: prediction-service
 
+  # NOTE the namespace. Boot 4 moved every MongoDB *connection* property from
+  # spring.data.mongodb.* to spring.mongodb.*. The old names are deprecated at
+  # level "error": they bind to nothing, and the driver silently falls back to
+  # mongodb://localhost/test. No warning, no failure at startup — just a health
+  # endpoint reporting mongo DOWN.
+  mongodb:
+    # Defaults target the shared local MongoDB from compose (host port 27018),
+    # using this service's own scoped user. authSource is this database, not
+    # admin — the user exists here and has readWrite on nothing else.
+    # Start it with:  docker compose up -d mongodb
+    uri: ${SPRING_MONGODB_URI:mongodb://prediction_service:scoregrid@localhost:27018/scoregrid_prediction?authSource=scoregrid_prediction}
+
   data:
     mongodb:
-      uri: ${SPRING_DATA_MONGODB_URI:mongodb://localhost:27018/scoregrid_prediction}
+      # Stays under spring.data.* — this one did NOT move. It is what creates
+      # the unique index on (userId, matchId); see hard rule 7.
       auto-index-creation: true
 
   rabbitmq:
@@ -34,7 +47,7 @@ server:
 
 scoregrid:
   jwt:
-    secret: ${SCOREGRID_JWT_SECRET}
+    secret: ${SCOREGRID_JWT_SECRET:dev-only-insecure-secret-do-not-deploy-anywhere-real}
     issuer: ${SCOREGRID_JWT_ISSUER:scoregrid-auth}
 
   clients:
@@ -52,6 +65,12 @@ management:
     health:
       probes:
         enabled: true
+      group:
+        # Readiness must fail when the datastore is unreachable. With only
+        # readinessState the container reports healthy while every request
+        # that touches data would fail.
+        readiness:
+          include: readinessState, mongo
       show-details: always
   health:
     livenessstate:

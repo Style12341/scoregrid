@@ -18,12 +18,14 @@ The split is vertical. Each stream owns backend services *and* the screens that 
 
 | # | Output | Status |
 |---|--------|--------|
-| 1 | Repository files: `.gitignore`, `.editorconfig`, `.env.example` | **done** |
+| 1 | Repository files: `.gitignore`, `.gitattributes`, `.editorconfig`, `.env.example` | **done** |
+| 1b | Git repository on `main`, remote set, CI building all five services + frontend on every PR | **done** |
 | 2 | All five services generated from the Initializr, Boot 4.1.0 / Java 21 | **done** |
 | 3 | `compose.yaml`: 2× Postgres, 2× Mongo, RabbitMQ, 5 services, frontend, health-gated startup | **done** |
 | 4 | `shared/` package (`SecurityConfig`, `GlobalExceptionHandler`, `ApiError`, `ErrorKind`, `DomainException`, `CurrentUser`) copied into all services | **done** |
 | 5 | RabbitMQ exchange, queues, bindings and DLQs declared per [`contracts.md`](contracts.md#events--rabbitmq) | **done** |
 | 6 | Vite app with router, axios client, auth context, route guard | **done** |
+| 6b | Design system (Tailwind 4 + shadcn/ui restyled to the mock) and the Login screen | **done** |
 | 7 | Observability stack (`infra/`) behind the `observability` profile | **done** |
 | 8 | **[`contracts.md`](contracts.md) read aloud and frozen** — every endpoint, payload and status code | **← do this together** |
 
@@ -45,7 +47,7 @@ Backend
 - The `SecurityConfig` that the other four services consume — you define how a JWT becomes an authenticated principal with roles, and the other two copy it.
 
 Platform
-- `compose.yaml` for the whole system: two Postgres, two Mongo, RabbitMQ, five services, frontend. Health checks and `depends_on: condition: service_healthy`.
+- `compose.yaml` for the whole system: one Postgres and one MongoDB (each holding one database per service, with per-service logins), RabbitMQ, five services, frontend. Health checks and `depends_on: condition: service_healthy`.
 - `infra/`: Prometheus scrape config, Grafana provisioning + one dashboard per service, Loki + Promtail for centralised JSON logs. All behind the `observability` Compose profile.
 - CI: build and test all five services plus the frontend on every PR.
 
@@ -134,14 +136,14 @@ Nobody waits. Every dependency has a stub.
 | Who | Needs | From | Until then |
 |-----|-------|------|------------|
 | Paggi, Werlen | A valid JWT | Bernard | Sign one in a test fixture with `SCOREGRID_JWT_SECRET` and claims `sub` / `roles`. No HTTP call, no running auth-service. |
-| Paggi, Werlen | Design system components | Bernard | **Real dependency — Bernard ships these in week 1.** Until then, unstyled HTML. |
+| Paggi, Werlen | Design system components | Bernard | **Shipped.** Import from `@/components/**` — see [`AGENTS.md`](../AGENTS.md#the-design-system). Do not edit those files; ask and a variant gets added once for all three. |
 | Werlen | `GET /api/matches/{id}`, participants check | Paggi | WireMock stubs from the JSON examples in `contracts.md` |
 | Werlen | `match.scheduled` / `match.finished` | Paggi | Publish the payloads by hand from the RabbitMQ management UI at `localhost:15672` |
 | Bernard (rankings UI) | `GET /api/rankings/**` | Werlen | MSW handlers from the `contracts.md` examples |
 | Paggi (fixture UI) | Nothing from anyone | — | — |
 | Everyone | Contracts | Phase 0 | Frozen. |
 
-The one hard sequencing constraint in the whole project is Bernard's design system in week one. Everything else is stubbable, which is exactly why the contracts are frozen up front.
+The one hard sequencing constraint in the whole project was Bernard's design system in week one. It has shipped, so nothing blocks anyone now — everything else is stubbable, which is exactly why the contracts are frozen up front.
 
 ---
 
