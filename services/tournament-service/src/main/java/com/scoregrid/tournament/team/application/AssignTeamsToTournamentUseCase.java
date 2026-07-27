@@ -34,10 +34,17 @@ public class AssignTeamsToTournamentUseCase implements AssignTeamsToTournament {
             throw new DomainException(ErrorKind.NOT_FOUND, "NOT_FOUND",
                     "Tournament not found: " + command.tournamentId());
         }
-        for (Long teamId : command.teamIds()) {
+        for (String teamIdStr : command.teamIds()) {
+            Long teamId;
+            try {
+                teamId = Long.parseLong(teamIdStr);
+            } catch (NumberFormatException e) {
+                throw new DomainException(ErrorKind.VALIDATION, "VALIDATION_FAILED",
+                        "Invalid team ID: " + teamIdStr);
+            }
             if (!teamRepository.existsById(teamId)) {
                 throw new DomainException(ErrorKind.VALIDATION, "VALIDATION_FAILED",
-                        "Team " + teamId + " not found");
+                        "Team " + teamIdStr + " not found");
             }
             tournamentTeamRepository.assign(command.tournamentId(), teamId);
         }

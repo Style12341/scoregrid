@@ -33,7 +33,7 @@ class TournamentRepositoryAdapter implements TournamentRepository {
     @Override
     public List<Tournament> findAllByStatus(TournamentStatus status, int offset, int limit) {
         int page = offset / limit;
-        return jpaRepository.findAllByStatus(status.name())
+        return jpaRepository.findAllByStatus(status.name(), PageRequest.of(page, limit))
                 .stream()
                 .map(TournamentMapper::toDomain)
                 .toList();

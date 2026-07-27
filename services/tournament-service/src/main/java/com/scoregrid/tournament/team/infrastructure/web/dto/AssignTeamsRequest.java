@@ -5,5 +5,5 @@ import jakarta.validation.constraints.NotEmpty;
 import java.util.List;
 
 public record AssignTeamsRequest(
-        @NotEmpty List<Long> teamIds
+        @NotEmpty List<String> teamIds
 ) {}

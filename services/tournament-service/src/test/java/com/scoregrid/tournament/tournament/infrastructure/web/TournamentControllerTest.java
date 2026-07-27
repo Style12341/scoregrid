@@ -155,6 +155,17 @@ class TournamentControllerTest {
                             .content("{\"name\":\"\"}"))
                     .andExpect(status().isBadRequest());
         }
+
+        @Test
+        @WithMockUser(roles = "ADMIN")
+        void shouldRejectNameTooLong() throws Exception {
+            var tooLong = "A".repeat(101);
+            mockMvc.perform(post("/api/tournaments")
+                            .with(csrf())
+                            .contentType(MediaType.APPLICATION_JSON)
+                            .content("{\"name\":\"" + tooLong + "\"}"))
+                    .andExpect(status().isBadRequest());
+        }
     }
 
     // -- 2.3 Get Tournament ------------------------------------------------------
@@ -382,6 +393,18 @@ class TournamentControllerTest {
         }
 
         @Test
+        @WithMockUser(roles = "PLAYER")
+        void shouldReturn404WhenJoiningNonExistentTournament() throws Exception {
+            when(joinTournament.execute(any()))
+                    .thenThrow(new DomainException(ErrorKind.NOT_FOUND, "NOT_FOUND",
+                            "Tournament not found: 999"));
+
+            mockMvc.perform(post("/api/tournaments/999/join").with(csrf()))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.error").value("NOT_FOUND"));
+        }
+
+        @Test
         @WithMockUser(roles = "ADMIN")
         void shouldRejectNonPlayerRole() throws Exception {
             // @PreAuthorize: @WebMvcTest does not fully wire method security interceptor
@@ -446,6 +469,18 @@ class TournamentControllerTest {
 
             mockMvc.perform(get("/api/tournaments/1/participants/42"))
                     .andExpect(status().isNotFound());
+        }
+
+        @Test
+        @WithMockUser
+        void shouldReturn404WhenCheckingEnrolmentForNonExistentTournament() throws Exception {
+            when(getParticipant.execute(999L, "42"))
+                    .thenThrow(new DomainException(ErrorKind.NOT_FOUND, "NOT_FOUND",
+                            "Tournament not found: 999"));
+
+            mockMvc.perform(get("/api/tournaments/999/participants/42"))
+                    .andExpect(status().isNotFound())
+                    .andExpect(jsonPath("$.error").value("NOT_FOUND"));
         }
     }
 }

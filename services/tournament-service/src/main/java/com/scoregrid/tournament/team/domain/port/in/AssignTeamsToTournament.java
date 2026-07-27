@@ -6,7 +6,7 @@ import java.util.List;
 
 public interface AssignTeamsToTournament {
 
-    record Command(Long tournamentId, List<Long> teamIds) {}
+    record Command(Long tournamentId, List<String> teamIds) {}
 
     List<Team> execute(Command command);
 }
