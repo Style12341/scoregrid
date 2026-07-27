@@ -26,16 +26,35 @@ Five Spring Boot services, a React frontend, two PostgreSQL databases and two Mo
 
 ## 2. Current state
 
-Scaffolding is complete and verified: all five services compile, the frontend builds, `docker compose up -d` reaches all-healthy with every datastore reporting `UP`.
+Scaffolding is complete and verified. Stream C (predictions and scoring) has landed. Streams A and B are still mostly unbuilt, and both currently carry **temporary stubs written by Stream C** that their owners are expected to replace.
 
-**Exists:**
+**Platform — done:**
 - Service skeletons, `shared/` package (security, error handling, current-user), `ResilienceConfig`, `RabbitConfig` with the full messaging topology, `application.yml` per service.
 - `compose.yaml` — one Postgres and one MongoDB, each with one database and one login per service, provisioned from `infra/postgres/init` and `infra/mongo/init`; RabbitMQ; five services; frontend. `infra/` also holds the observability config.
-- Git repository and `.github/workflows/ci.yml` — five services in a matrix, frontend lint + build, compose validation on both profiles.
+- Git repository and `.github/workflows/ci.yml` — five services in a matrix, frontend lint + build, compose validation on both profiles. Green on `main`.
 - Frontend: axios client, auth context, route guard, route map, and the **design system** (Tailwind v4 + shadcn/ui restyled to the mock) — see §8.
-- One real screen: Login, wired to `auth-service` via `AuthContext`.
 
-**Does not exist:** any entity, controller, repository, use case, Flyway migration or Mongo document, and every screen except Login. That is feature work — see §8.
+**Stream C — done** (`prediction-service`, `score-service`):
+- `prediction-service`: full hexagonal slice — domain model, ports, the six-step validation chain, Mongo persistence with the unique index on `(userId, matchId)`, in-memory match cache fed by `match.scheduled` / `match.updated`, `RestClient` fallback to tournament-service behind a circuit breaker, six controller endpoints, event publisher.
+- `score-service`: `ScoringRuleV1` (3 exact / 1 outcome / 0) with the parameterised table from `contracts.md`, idempotent per-match scoring by replace, tournament and global ranking projections with the tie-break chain, `match.finished` consumer, REST clients to prediction-service and auth-service, five ranking endpoints.
+- Screens: `PredictionPage`, `MyPredictionsPage`, `AdminResultsPage`, wired into `App.tsx`.
+
+**Temporary stubs — replace, do not build on:**
+
+| Stub | Lives in | Owner who must replace it |
+|------|----------|---------------------------|
+| `AuthController` (register / login / me), `UserEntity`, `RoleEntity`, repositories, `V1__create_users_roles.sql` | `auth-service` | **Bernard** |
+| `MatchController`, `ParticipantController`, `MatchEntity`, `TeamEntity`, `V1__create_tournament_tables.sql` | `tournament-service` | **Paggi** |
+
+These exist so Stream C could integrate against something real. They are not hexagonal, they carry no tests, and they do not implement the full contract. Treat them as scaffolding with a deadline, not as a starting point to extend.
+
+**Does not exist yet:**
+- `auth-service`: `/api/users/{id}`, `/api/users`, `/api/users/batch`. **`score-service` already calls `/api/users/batch`** and silently falls back to rendering the raw user ID as the username when the call fails — so rankings look subtly wrong rather than broken until this ships.
+- `tournament-service`: everything except the match/participant stubs — tournaments, teams, groups, phases, the state machine, `predictionsOpen`, enrolment, event publishing.
+- Screens: Register, Dashboard, Tournament Ranking, Global Ranking (Stream A); tournament list, tournament detail, admin panel (Stream B).
+- Integration tests. Only two unit tests exist repo-wide (`ScoringRuleV1Test`, `DerivedOutcomeTest`). No Testcontainers, `@WebMvcTest`, `@DataJpaTest` or `@DataMongoTest` suite yet, against the definition of done in [`docs/workstreams.md`](docs/workstreams.md#working-agreements).
+
+**Undocumented cross-service mechanism — needs a contracts PR.** Stream C introduced `ServiceToken` (duplicated in `prediction-service` and `score-service`) which mints an HS256 JWT from `SCOREGRID_JWT_SECRET` with `sub` set to the *service name* and `roles: ["ADMIN"]`, for service-to-service REST calls. This is load-bearing and is **not** in [`docs/contracts.md`](docs/contracts.md) — which currently states `sub` is always a user ID. Do not copy the pattern into a third service until the contract is amended by PR with all three approvals. See [`docs/workstreams.md`](docs/workstreams.md#open-contract-questions).
 
 ---
 
@@ -104,6 +123,22 @@ spring:
       auto-index-creation: true      # stays here
 ```
 
+**Boot 4 moved the test slice annotations into per-module packages.** The Boot 3 imports do not exist and there is no deprecation shim — you get `package ... does not exist`, which at least fails loudly, unlike the traps above. Verified against the resolved jars:
+
+| Annotation | Boot 3 (wrong here) | Boot 4.1 |
+|------------|---------------------|----------|
+| `@WebMvcTest` | `o.s.b.test.autoconfigure.web.servlet` | `org.springframework.boot.webmvc.test.autoconfigure` |
+| `@DataJpaTest` | `o.s.b.test.autoconfigure.orm.jpa` | `org.springframework.boot.data.jpa.test.autoconfigure` |
+| `@AutoConfigureTestDatabase` | `o.s.b.test.autoconfigure.jdbc` | `org.springframework.boot.jdbc.test.autoconfigure` |
+
+`MockMvc`, `MockMvcRequestBuilders`, `@MockitoBean` and `SecurityMockMvcRequestPostProcessors` did **not** move — they come from `spring-test` and `spring-security-test`, not Boot. Use `@MockitoBean`, not the removed `@MockBean`.
+
+**MapStruct reads a `withX()` copy-method as a target property.** A domain type with `User withId(Long)` makes MapStruct report `Unmapped target property: "withId"`, and with `unmappedTargetPolicy = ERROR` that fails the build. It is a wither, not a builder, so `disableBuilder` does not help — add `@Mapping(target = "withId", ignore = true)`. Keep the strict policy: it is what catches a genuinely forgotten field.
+
+Order matters in `annotationProcessorPaths`: lombok, then `lombok-mapstruct-binding`, then `mapstruct-processor`. Wrong order and MapStruct cannot see Lombok-generated accessors.
+
+**Maven's incremental build will lie about annotation processors.** Changing a class into a MapStruct interface and rebuilding without `clean` can leave the old compiled class in `target/classes` and skip processing entirely — tests that do not load a Spring context still pass, and the missing `@Component` only surfaces at runtime. After touching a mapper or a processor path, run `./mvnw clean test`, and check `target/generated-sources/annotations/` actually contains the `*Impl`.
+
 **A readiness probe that excludes the datastore will lie to you.** `/actuator/health/readiness` contains only `readinessState` by default, so a container reports healthy while every query fails. Each data service adds the relevant indicator to the readiness group — see `management.endpoint.health.group.readiness` in its `application.yml`. This is how the property change above went unnoticed in the first place.
 
 ---
@@ -139,6 +174,9 @@ Error codes are part of the contract: `VALIDATION_FAILED`, `UNAUTHORIZED`, `FORB
 - Domain and application logic: plain unit tests, no Spring context. These run in milliseconds.
 - Controllers: `@WebMvcTest`. Persistence: `@DataJpaTest` / `@DataMongoTest`.
 - Anything touching a real database or queue: **Testcontainers, not H2.** H2 does not behave like PostgreSQL where it matters.
+- **Name every test class `*Test`, never `*IT`.** Surefire only collects `*Test`; `*IT` belongs to Failsafe, and no POM here declares Failsafe. A class named `SomethingIT` runs under neither `./mvnw test` nor CI's `./mvnw verify` — it is silently skipped, and the suite still reports green. Verified the hard way.
+- Pin Testcontainers images (`postgres:17-alpine`, not `postgres:latest`) so a major-version bump cannot change behaviour with no commit.
+- A green suite proves nothing until you have watched it go red. When a test guards something that matters — an authorisation rule, a field that must not be serialised — break the code deliberately once and confirm that test, and not some unrelated one, is what fails.
 - The scoring rule table in [`docs/contracts.md`](docs/contracts.md#scoring-rule-v1) is a parameterised test. Implement it verbatim.
 
 ---
