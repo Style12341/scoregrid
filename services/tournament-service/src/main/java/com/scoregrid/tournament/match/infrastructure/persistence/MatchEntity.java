@@ -1,6 +1,6 @@
 package com.scoregrid.tournament.match.infrastructure.persistence;
 
-import com.scoregrid.tournament.team.infrastructure.persistence.TeamEntity;
+import com.scoregrid.tournament.team.infrastructure.persistence.TeamJpaEntity;
 import jakarta.persistence.Column;
 import jakarta.persistence.Entity;
 import jakarta.persistence.FetchType;
@@ -32,11 +32,11 @@ public class MatchEntity {
 
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "home_team_id")
-    private TeamEntity homeTeam;
+    private TeamJpaEntity homeTeam;
 
     @ManyToOne(fetch = FetchType.EAGER)
     @JoinColumn(name = "away_team_id")
-    private TeamEntity awayTeam;
+    private TeamJpaEntity awayTeam;
 
     @Column(name = "start_time", nullable = false)
     private Instant startTime;
@@ -56,8 +56,8 @@ public class MatchEntity {
     public Long getTournamentId() { return tournamentId; }
     public Long getGroupId() { return groupId; }
     public Long getPhaseId() { return phaseId; }
-    public TeamEntity getHomeTeam() { return homeTeam; }
-    public TeamEntity getAwayTeam() { return awayTeam; }
+    public TeamJpaEntity getHomeTeam() { return homeTeam; }
+    public TeamJpaEntity getAwayTeam() { return awayTeam; }
     public Instant getStartTime() { return startTime; }
     public String getStatus() { return status; }
     public Integer getHomeScore() { return homeScore; }

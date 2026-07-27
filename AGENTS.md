@@ -45,18 +45,16 @@ Scaffolding is complete and verified. Stream C (predictions and scoring) has lan
 - Screens: Login, Register, Dashboard, Tournament Ranking, Global Ranking.
 - Lombok and MapStruct are the agreed project-wide convention; `auth-service` is the reference wiring (see the annotation-processor ordering in its POM).
 
-**Temporary stub still in place — replace, do not build on:**
+**Stream B — done** (`tournament-service`):
+- `tournament-service` end to end and hexagonal: Tournament CRUD with state machine (DRAFT → ACTIVE → FINISHED/CLOSED), Team catalogue CRUD, tournament-team assignment (idempotent), player enrolment (join, list, single lookup). 60+ tests: domain unit, `@DataJpaTest` persistence integration, `@WebMvcTest` controller tests with Testcontainers against real PostgreSQL. It replaced the Stream C stubs (`MatchController` was refactored, `ParticipantController` was deleted).
 
-| Stub | Lives in | Owner who must replace it |
-|------|----------|---------------------------|
-| `MatchController`, `ParticipantController`, `MatchEntity`, `TeamEntity`, `V1__create_tournament_tables.sql` | `tournament-service` | **Paggi** |
+**No temporary stubs remain.** All three Stream C stubs (auth, match, participant) have been replaced by their respective owners.
 
-Written by Stream C so it could integrate against something real. Not hexagonal, no tests, and it does not implement the full contract. Scaffolding with a deadline, not a starting point to extend.
+**Stream C review findings — open**, to be addressed by Werlen. See [`docs/review-stream-c.md`](docs/review-stream-c.md) for the full list (4 blocking, 5 should-fix, 6 cleanup).
 
 **Does not exist yet:**
-- `tournament-service`: everything except the match/participant stubs — tournaments, teams, groups, phases, the state machine, `predictionsOpen`, enrolment, event publishing. **This is now the critical path**: prediction and score are built and waiting for a real publisher, and nothing can be demonstrated end to end without it.
-- Screens: tournament list, tournament detail, admin panel (Stream B).
-- Tests in `tournament-service`, `prediction-service` and `score-service`. Stream C has two unit tests (`ScoringRuleV1Test`, `DerivedOutcomeTest`) and no Testcontainers, `@WebMvcTest` or `@DataMongoTest` suite, against the definition of done in [`docs/workstreams.md`](docs/workstreams.md#working-agreements). See [`docs/review-stream-c.md`](docs/review-stream-c.md).
+- Screens: tournament list, tournament detail, admin panel (Stream B frontend).
+- Tests in `prediction-service` and `score-service`. Stream C has two unit tests (`ScoringRuleV1Test`, `DerivedOutcomeTest`) and no Testcontainers, `@WebMvcTest` or `@DataMongoTest` suite, against the definition of done in [`docs/workstreams.md`](docs/workstreams.md#working-agreements).
 
 **Undocumented cross-service mechanism — needs a contracts PR.** Stream C introduced `ServiceToken` (duplicated in `prediction-service` and `score-service`) which mints an HS256 JWT from `SCOREGRID_JWT_SECRET` with `sub` set to the *service name* and `roles: ["ADMIN"]`, for service-to-service REST calls. This is load-bearing and is **not** in [`docs/contracts.md`](docs/contracts.md) — which currently states `sub` is always a user ID. Do not copy the pattern into a third service until the contract is amended by PR with all three approvals. See [`docs/workstreams.md`](docs/workstreams.md#open-contract-questions).
 

@@ -277,7 +277,6 @@ ResponseEntity<List<TournamentRankingResponse>> getUserRanking(@PathVariable Str
 ```
 
 The endpoint is in `contracts.md`, so a client is entitled to call it — and it answers `200 []`, which is indistinguishable from "this user has no scores". A caller cannot tell "not implemented" from "no data", and will render an empty state instead of an error. I have deliberately not built any UI against it. Either implement it or return `501`.
-
 ### C13 — `locked` is always `false` on create
 
 `prediction-service` · `CreatePredictionService.java:71`
