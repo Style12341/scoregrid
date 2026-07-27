@@ -10,7 +10,7 @@ Instructions for AI coding agents working in the ScoreGrid repository.
 
 ScoreGrid is a football prediction pool: admins build tournaments with group stages and knockout phases, participants predict match scores, the system scores predictions automatically and maintains per-tournament and global rankings.
 
-Five Spring Boot services, a React frontend, two PostgreSQL databases, two MongoDB databases, RabbitMQ, all under one Docker Compose.
+Five Spring Boot services, a React frontend, two PostgreSQL databases and two MongoDB databases (sharing one instance per engine, isolated by per-service logins), RabbitMQ, all under one Docker Compose.
 
 | Service | Port | Owns | Database |
 |---------|------|------|----------|
@@ -20,17 +20,22 @@ Five Spring Boot services, a React frontend, two PostgreSQL databases, two Mongo
 | `prediction-service` | 8083 | Predictions, kickoff lock | MongoDB |
 | `score-service` | 8084 | Scoring, tournament ranking, global ranking | MongoDB |
 
-**Stack (verified, not assumed):** Java 21 · Spring Boot 4.1.0 · Spring Cloud 2025.1.2 · Spring Cloud Gateway 5.0.2 · Spring AMQP 4.1.0 · Maven (one independent POM per service, no aggregator) · React 19 · Vite 8 · TypeScript 6.
+**Stack (verified, not assumed):** Java 21 · Spring Boot 4.1.0 · Spring Cloud 2025.1.2 · Spring Cloud Gateway 5.0.2 · Spring AMQP 4.1.0 · Maven (one independent POM per service, no aggregator) · React 19 · Vite 8 · TypeScript 6 · Tailwind CSS 4 · shadcn/ui (Radix primitives).
 
 ---
 
 ## 2. Current state
 
-Scaffolding is complete and verified: all five services compile, the frontend builds, `docker compose config` validates.
+Scaffolding is complete and verified: all five services compile, the frontend builds, `docker compose up -d` reaches all-healthy with every datastore reporting `UP`.
 
-**Exists:** service skeletons, `shared/` package (security, error handling, current-user), `ResilienceConfig`, `RabbitConfig` with the full messaging topology, `application.yml` per service, `compose.yaml`, `infra/` observability config, frontend with axios client + auth context + route guard + route map.
+**Exists:**
+- Service skeletons, `shared/` package (security, error handling, current-user), `ResilienceConfig`, `RabbitConfig` with the full messaging topology, `application.yml` per service.
+- `compose.yaml` — one Postgres and one MongoDB, each with one database and one login per service, provisioned from `infra/postgres/init` and `infra/mongo/init`; RabbitMQ; five services; frontend. `infra/` also holds the observability config.
+- Git repository and `.github/workflows/ci.yml` — five services in a matrix, frontend lint + build, compose validation on both profiles.
+- Frontend: axios client, auth context, route guard, route map, and the **design system** (Tailwind v4 + shadcn/ui restyled to the mock) — see §8.
+- One real screen: Login, wired to `auth-service` via `AuthContext`.
 
-**Does not exist:** any entity, controller, repository, use case, Flyway migration, Mongo document, or real screen. That is feature work — see §8.
+**Does not exist:** any entity, controller, repository, use case, Flyway migration or Mongo document, and every screen except Login. That is feature work — see §8.
 
 ---
 

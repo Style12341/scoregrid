@@ -129,15 +129,16 @@ Integration tests use Testcontainers and start real PostgreSQL, MongoDB and Rabb
 
 ```
 scoregrid/
+├── .github/workflows/     CI: five services, frontend, compose validation
 ├── docs/                  PRD, setup guide, frozen contracts, work split
-├── infra/                 Prometheus, Grafana, Loki, Promtail config
+├── infra/                 database provisioning + Prometheus, Grafana, Loki, Promtail
 ├── services/              five independently buildable Maven projects
 │   ├── api-gateway/
 │   ├── auth-service/
 │   ├── tournament-service/
 │   ├── prediction-service/
 │   └── score-service/
-├── frontend/              Vite + React 19 + TypeScript
+├── frontend/              Vite + React 19 + TypeScript + the design system
 ├── compose.yaml
 ├── .env.example
 ├── AGENTS.md              instructions for AI coding agents
@@ -162,7 +163,9 @@ Services are organised hexagonally, by feature first and layer second — open a
 
 ## Tech stack
 
-Java 21 · Spring Boot 4.1.0 · Spring Cloud 2025.1.2 · Spring Security (OAuth2 resource server) · Spring Data JPA · Spring Data MongoDB · Flyway · RabbitMQ · Resilience4J · Micrometer / Prometheus / Grafana / Loki · Testcontainers · Maven · React 19 · TypeScript · Vite · Docker Compose
+Java 21 · Spring Boot 4.1.0 · Spring Cloud 2025.1.2 · Spring Security (OAuth2 resource server) · Spring Data JPA · Spring Data MongoDB · Flyway · RabbitMQ · Resilience4J · Micrometer / Prometheus / Grafana / Loki · Testcontainers · Maven · React 19 · TypeScript · Vite · Tailwind CSS 4 · shadcn/ui · Docker Compose
+
+The user interface is in Spanish; identifiers, comments, commit messages and API fields are in English. See rule 10 in [`AGENTS.md`](AGENTS.md#4-hard-rules).
 
 Spring Boot 4 renamed several starters (`spring-boot-starter-web` is now `spring-boot-starter-webmvc`, among others). The full list of renames, and why you should generate services from the Initializr rather than hand-writing a POM, is in [`docs/start.md`](docs/start.md#read-this-before-you-generate-anything--boot-4x-renamed-starters).
 

@@ -91,7 +91,18 @@ On Windows without `tar`/`curl`, use start.spring.io in the browser with the sam
 ```bash
 npm create vite@latest frontend -- --template react-ts
 cd frontend && npm i react-router-dom axios @tanstack/react-query
+
+# Design system: Tailwind 4 (CSS-first config, no tailwind.config.js) and the
+# shadcn/ui toolchain. shadcn generates components into src/components/ui.
+npm i -D tailwindcss @tailwindcss/vite tw-animate-css
+npm i class-variance-authority clsx tailwind-merge lucide-react
+npx shadcn@latest add button card input label table badge tabs select dialog separator
 ```
+
+Two configuration notes that bite on this version combination:
+
+- Tailwind 4 has **no `tailwind.config.js`**. Tokens are declared in CSS with `@theme`, and the plugin goes in `vite.config.ts`, not in PostCSS.
+- TypeScript 6 **deprecates `baseUrl`** at error level. Declare the `@/*` alias with `paths` alone — it resolves relative to the config file — and mirror it in `vite.config.ts` under `resolve.alias`.
 
 ### What each dependency is for
 
@@ -199,6 +210,9 @@ scoregrid/
 ├── .env.example
 ├── .gitignore
 ├── .editorconfig
+├── .gitattributes                # eol=lf, so mvnw survives a Windows clone
+│
+├── .github/workflows/ci.yml      # services matrix + frontend + compose check
 │
 ├── docs/
 │   ├── PRD.md                    # what we are building and why
@@ -206,7 +220,9 @@ scoregrid/
 │   ├── contracts.md              # FROZEN interfaces — read before coding
 │   └── workstreams.md            # who builds what
 │
-├── infra/                        # observability profile config
+├── infra/
+│   ├── postgres/init/            # creates a database + role per service
+│   ├── mongo/init/               # creates a scoped user per service
 │   ├── prometheus/prometheus.yml
 │   ├── grafana/provisioning/datasources/datasources.yml
 │   ├── loki/loki-config.yml
@@ -222,9 +238,17 @@ scoregrid/
 └── frontend/
     ├── Dockerfile                # multi-stage: node build → nginx
     ├── nginx.conf                # SPA fallback + cache headers
+    ├── components.json           # shadcn/ui generator config
     └── src/
+        ├── index.css             # design tokens — change colours HERE
         ├── lib/api.ts            # the one axios client, points at the gateway
+        ├── lib/utils.ts          # cn() — Tailwind class merge
         ├── auth/                 # AuthContext + RequireAuth route guard
+        ├── components/
+        │   ├── ui/               # shadcn primitives, restyled to the mock
+        │   ├── layout/           # AppLayout, Sidebar, Topbar, usePageHeader
+        │   └── common/           # states, FormField, StatusBadge, MetricCard
+        ├── features/<area>/      # screens, owned by the stream owning the area
         └── App.tsx               # route map, placeholders tagged by owner
 ```
 
@@ -406,9 +430,12 @@ Phase 0 is done. In place and verified:
 | `ResilienceConfig` | tournament, prediction, score — named circuit breaker instances |
 | `RabbitConfig` | full topology from [`contracts.md`](contracts.md#events--rabbitmq): exchange, DLX, both queues, both DLQs |
 | `application.yml` per service | ports, datasources, actuator probes, Prometheus, tracing, `docker` profile with JSON logging |
-| `compose.yaml` | 11 core containers, health-gated startup, `observability` profile |
-| `infra/` | Prometheus, Loki, Promtail, Grafana datasources |
+| `compose.yaml` | 9 core containers, health-gated startup, `observability` profile |
+| `infra/` | Prometheus, Loki, Promtail, Grafana datasources; Postgres and MongoDB provisioning scripts |
 | `frontend/` | Vite + React 19 + TS, axios client with JWT interceptor, auth context, route guard, route map |
+| Design system | Tailwind 4 + shadcn/ui restyled to the interface mock — layout shell, empty/error/loading states, `FormField`, status badges. See [`AGENTS.md`](../AGENTS.md#the-design-system) |
+| Login screen | The one real screen, wired to `auth-service` |
+| CI | `.github/workflows/ci.yml` — five services in a matrix, frontend lint + build, compose validation |
 
 **First thing on a fresh clone:**
 
@@ -422,7 +449,7 @@ The first build compiles five Spring services and pulls their dependencies — b
 
 ### What is deliberately not scaffolded
 
-No entities, no controllers, no migrations, no screens. Those are the [workstreams](workstreams.md). The scaffolding stops exactly where design decisions start.
+No entities, no controllers, no migrations, and no screens beyond Login. Those are the [workstreams](workstreams.md). The scaffolding stops exactly where design decisions start.
 
 The one Phase 0 step nobody can do for you: **read [`contracts.md`](contracts.md) together and freeze it** before splitting up.
 
