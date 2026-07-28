@@ -39,19 +39,16 @@ Verified working at scaffold time: all five services compile, the frontend build
 
 | Stream | Owner | State |
 |--------|-------|-------|
-| **A** — Identity, Edge & Platform | Bernard | Platform and design system done. `auth-service` is a **stub written by Stream C**; gateway routes configured but unexercised; four of five screens unbuilt. |
-| **B** — Tournament Core | Paggi | Not started. `MatchController` / `ParticipantController` / `V1__create_tournament_tables.sql` are **stubs written by Stream C**. |
-| **C** — Predictions & Scoring | Werlen | **Done** — both services implemented hexagonally end to end, three screens shipped, merged to `main` in #3. |
+| **A** — Identity, Edge & Platform | Bernard | **Done.** `auth-service` end to end (register, login, `/me`, `/api/users`, `/api/users/batch`, 81 tests). `api-gateway` with five route groups, edge JWT rejection, CORS. Screens: Login, Register, Dashboard, Tournament Ranking, Global Ranking. |
+| **B** — Tournament Core | Paggi | **Backend done, frontend pending.** `tournament-service` with CRUD, state machine, teams, enrolment (60+ tests). Stream C stubs (`MatchController`, `ParticipantController`) were refactored but temporary stubs never fully cleaned up. Screens (tournament list, detail, admin panel) are still unbuilt. Also responsible for the Testcontainers / `@WebMvcTest` / `@DataMongoTest` suite in `prediction-service` and `score-service` (only two unit tests exist from Stream C). |
+| **C** — Predictions & Scoring | Werlen | **Done** — both services implemented hexagonally end to end, three screens shipped, merged to `main` in #3. Only two unit tests; missing Testcontainers, `@WebMvcTest` and `@DataMongoTest` suite per the definition of done below. |
 
-Stream C could not integrate against nothing, so it wrote the minimum stubs it needed inside `auth-service` and `tournament-service`. That was pragmatic and it unblocked the work, but it means **two people now own code they did not write**. Bernard and Paggi replace those stubs as part of their own streams — the stubs are not a head start, they are a placeholder that happens to compile.
-
-> **Stream C has an open review:** [`review-stream-c.md`](review-stream-c.md) — four blocking findings, including a tie-break comparator that ranks the *fewest* exact hits first, and an enrolment check that reports a downstream outage as `403 NOT_ENROLLED`. Werlen to action; nothing in his services has been changed by anyone else.
+Stream C could not integrate against nothing, so it wrote the minimum stubs it needed inside `auth-service` and `tournament-service`. Stream A has replaced its stub. Stream B refactored them but did not fully clean up the temporary stubs left by Stream C.
 
 **Outstanding, in rough dependency order:**
 
-1. **Bernard** — real `auth-service`: hexagonal structure, the error envelope on every failure path, and the three missing user endpoints. `GET /api/users/batch` is the urgent one: `score-service` already calls it and falls back to showing raw user IDs as usernames, so rankings render *plausibly wrong* rather than failing loudly.
-2. **Paggi** — real `tournament-service`. Everything downstream of `predictionsOpen` and `match.finished` is already built and waiting for a real publisher.
-3. **All three** — tests. Two unit tests exist repo-wide. The definition of done below is not currently being met by any stream, including C.
+1. **Paggi** — frontend screens (tournament list, tournament detail, admin panel), cleanup of remaining Stream C stubs, and the Testcontainers / `@WebMvcTest` / `@DataMongoTest` suite in `prediction-service` and `score-service` (only two unit tests exist from Stream C).
+2. **All three** — the `ServiceToken` contracts PR (see [Open contract questions](#open-contract-questions)).
 
 ---
 
@@ -167,9 +164,9 @@ Nobody waits. Every dependency has a stub.
 |-----|-------|------|------------|
 | Paggi, Werlen | A valid JWT | Bernard | Sign one in a test fixture with `SCOREGRID_JWT_SECRET` and claims `sub` / `roles`. No HTTP call, no running auth-service. |
 | Paggi, Werlen | Design system components | Bernard | **Shipped.** Import from `@/components/**` — see [`AGENTS.md`](../AGENTS.md#the-design-system). Do not edit those files; ask and a variant gets added once for all three. |
-| Werlen | `GET /api/matches/{id}`, participants check | Paggi | **Resolved by stub.** Werlen wrote a minimal `MatchController` / `ParticipantController` in `tournament-service`; Paggi replaces them. |
-| Werlen | `match.scheduled` / `match.finished` | Paggi | Publish the payloads by hand from the RabbitMQ management UI at `localhost:15672` |
-| Werlen (ranking usernames) | `GET /api/users/batch` | Bernard | **Unresolved and silent.** `AuthRestClient` catches the failure and maps each ID to itself, so rankings show `"42"` where a username belongs. Nothing breaks; it just reads wrong. |
+| Werlen | `GET /api/matches/{id}`, participants check | Paggi | **Resolved.** Paggi replaced the Stream C stubs with the real `tournament-service` implementation. |
+| Werlen | `match.scheduled` / `match.finished` | Paggi | **Resolved.** `tournament-service` publishes these events. |
+| Werlen (ranking usernames) | `GET /api/users/batch` | Bernard | **Resolved.** Shipped as part of `auth-service`. |
 | Bernard (rankings UI) | `GET /api/rankings/**` | Werlen | **Shipped.** Call `score-service` directly. |
 | Paggi (fixture UI) | Nothing from anyone | — | — |
 | Everyone | Contracts | Phase 0 | Frozen — with one undocumented addition, see [Open contract questions](#open-contract-questions). |
@@ -236,3 +233,5 @@ Circuit breakers verified by actually killing a container. DLQ behaviour verifie
 **Daily.** Fifteen minutes: what I finished, what I am on, what I am blocked by. A blocker older than a day goes to all three.
 
 **When you want to change a contract.** Do not just change it. Open the PR against `docs/contracts.md`, say why, get both approvals, update stubs in the same PR. The alternative is discovering the change at the M2 checkpoint, which costs everyone a day instead of costing you ten minutes.
+
+**If you find a bug or something broken that blocks your work, fix it.** Do not write a review document and wait for the owner. The ownership table above exists to prevent merge conflicts, not to prevent bug fixes. If the fix touches another person's files, mention it — but ship it. Staying blocked on someone else's review cycle when you have the compiler and the tests in front of you is a process problem, not a code problem.

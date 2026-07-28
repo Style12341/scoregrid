@@ -45,16 +45,12 @@ Scaffolding is complete and verified. Stream C (predictions and scoring) has lan
 - Screens: Login, Register, Dashboard, Tournament Ranking, Global Ranking.
 - Lombok and MapStruct are the agreed project-wide convention; `auth-service` is the reference wiring (see the annotation-processor ordering in its POM).
 
-**Stream B — done** (`tournament-service`):
-- `tournament-service` end to end and hexagonal: Tournament CRUD with state machine (DRAFT → ACTIVE → FINISHED/CLOSED), Team catalogue CRUD, tournament-team assignment (idempotent), player enrolment (join, list, single lookup). 60+ tests: domain unit, `@DataJpaTest` persistence integration, `@WebMvcTest` controller tests with Testcontainers against real PostgreSQL. It replaced the Stream C stubs (`MatchController` was refactored, `ParticipantController` was deleted).
-
-**No temporary stubs remain.** All three Stream C stubs (auth, match, participant) have been replaced by their respective owners.
-
-**Stream C review findings — open**, to be addressed by Werlen. See [`docs/review-stream-c.md`](docs/review-stream-c.md) for the full list (4 blocking, 5 should-fix, 6 cleanup).
+**Stream B — in progress** (`tournament-service`):
+- `tournament-service` end to end and hexagonal: Tournament CRUD with state machine (DRAFT → ACTIVE → FINISHED/CLOSED), Team catalogue CRUD, tournament-team assignment (idempotent), player enrolment (join, list, single lookup). 60+ tests: domain unit, `@DataJpaTest` persistence integration, `@WebMvcTest` controller tests with Testcontainers against real PostgreSQL. It replaced the Stream C stubs (`MatchController` was refactored, `ParticipantController` was deleted). Frontend screens (tournament list, detail, admin panel) are still unbuilt; temporary stubs from Stream C were never fully cleaned up.
 
 **Does not exist yet:**
 - Screens: tournament list, tournament detail, admin panel (Stream B frontend).
-- Tests in `prediction-service` and `score-service`. Stream C has two unit tests (`ScoringRuleV1Test`, `DerivedOutcomeTest`) and no Testcontainers, `@WebMvcTest` or `@DataMongoTest` suite, against the definition of done in [`docs/workstreams.md`](docs/workstreams.md#working-agreements).
+- Frontend screens and tests in `prediction-service` and `score-service` (assigned to Stream B). Stream C has two unit tests (`ScoringRuleV1Test`, `DerivedOutcomeTest`) and no Testcontainers, `@WebMvcTest` or `@DataMongoTest` suite, against the definition of done in [`docs/workstreams.md`](docs/workstreams.md#working-agreements).
 
 **Undocumented cross-service mechanism — needs a contracts PR.** Stream C introduced `ServiceToken` (duplicated in `prediction-service` and `score-service`) which mints an HS256 JWT from `SCOREGRID_JWT_SECRET` with `sub` set to the *service name* and `roles: ["ADMIN"]`, for service-to-service REST calls. This is load-bearing and is **not** in [`docs/contracts.md`](docs/contracts.md) — which currently states `sub` is always a user ID. Do not copy the pattern into a third service until the contract is amended by PR with all three approvals. See [`docs/workstreams.md`](docs/workstreams.md#open-contract-questions).
 
@@ -93,6 +89,7 @@ Not style preferences. Breaking any of these breaks the architecture.
     - **Spanish:** every string a participant reads — nav labels, buttons, headings, form labels, validation messages, empty/error/loading copy, dates and number formatting.
     - The register is **Rioplatense** (voseo: "Ingresá", "Pronosticá"), matching `scoregrid_mock_interfaces_html.html`. The mock is the copy reference; when a screen exists there, reuse its wording rather than inventing a synonym.
     - A Spanish identifier and an English button are both wrong. An error code stays `NOT_ENROLLED` on the wire and is rendered to the user as "No estás inscripto en este torneo".
+9.  **If you find a bug or broken behaviour that blocks your work, fix it.** Do not write a review document, file a ticket and wait, or stay blocked. The owner boundary in §8 prevents merge conflicts, not bug fixes. If the fix crosses ownership, mention it — but ship it. A review document is useless without code.
 
 ---
 
