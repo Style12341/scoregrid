@@ -10,4 +10,6 @@ public interface GetRankingsUseCase {
     List<TournamentRankingEntry> getTournamentRanking(String tournamentId, int page, int size);
 
     List<GlobalRankingEntry> getGlobalRanking(int page, int size);
+
+    List<TournamentRankingEntry> getUserRanking(String userId);
 }

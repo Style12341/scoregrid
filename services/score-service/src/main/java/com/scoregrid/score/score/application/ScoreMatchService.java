@@ -15,7 +15,7 @@ import java.time.Instant;
 import java.util.List;
 
 @Service
-public class ScoreMatchService implements ScoreMatchUseCase {
+class ScoreMatchService implements ScoreMatchUseCase {
 
     private static final Logger log = LoggerFactory.getLogger(ScoreMatchService.class);
 

@@ -29,18 +29,23 @@ class MatchCacheConsumer {
         try {
             MatchScheduledPayload payload = objectMapper.convertValue(envelope.payload(), MatchScheduledPayload.class);
 
+            boolean predictionsOpen = "ACTIVE".equals(payload.tournamentStatus())
+                    && "SCHEDULED".equals(payload.status());
+
             CachedMatch cached = new CachedMatch(
                     payload.matchId(),
                     payload.tournamentId(),
                     payload.tournamentStatus(),
                     payload.status(),
-                    payload.startTime()
+                    payload.startTime(),
+                    predictionsOpen
             );
 
             matchCache.put(cached);
             log.info("Match cache updated: {} status={}", payload.matchId(), payload.status());
         } catch (Exception e) {
             log.error("Failed to deserialize match event payload: {}", envelope.eventType(), e);
+            throw e;
         }
     }
 }

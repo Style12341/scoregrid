@@ -44,8 +44,8 @@ class RankingController {
 
     @GetMapping("/user/{userId}")
     ResponseEntity<List<TournamentRankingResponse>> getUserRanking(@PathVariable String userId) {
-        // User's ranking across all tournaments — returns empty for now, to be implemented
-        return ResponseEntity.ok(List.of());
+        var entries = getRankings.getUserRanking(userId);
+        return ResponseEntity.ok(entries.stream().map(TournamentRankingResponse::from).toList());
     }
 
     @PostMapping("/recalculate/match/{matchId}")

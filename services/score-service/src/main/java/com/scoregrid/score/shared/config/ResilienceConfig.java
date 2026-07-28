@@ -1,5 +1,6 @@
 package com.scoregrid.score.shared.config;
 
+import com.scoregrid.score.shared.error.DomainException;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
 import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryConfig;
@@ -74,7 +75,8 @@ public class ResilienceConfig {
                 .maxAttempts(3)
                 .waitDuration(Duration.ofMillis(100))
                 .intervalFunction(attempt -> (long) (100 * Math.pow(2, attempt)))
-                .retryExceptions(RuntimeException.class)
+                .retryExceptions(Exception.class)
+                .ignoreExceptions(DomainException.class)
                 .build());
     }
 }

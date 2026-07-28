@@ -16,12 +16,7 @@ public interface MatchCachePort {
             String tournamentId,
             String tournamentStatus,
             String matchStatus,
-            Instant startTime
-    ) {
-        public boolean predictionsOpen() {
-            return "ACTIVE".equals(tournamentStatus)
-                    && "SCHEDULED".equals(matchStatus)
-                    && Instant.now().isBefore(startTime);
-        }
-    }
+            Instant startTime,
+            boolean predictionsOpen
+    ) {}
 }

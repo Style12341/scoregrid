@@ -78,7 +78,7 @@ class PredictionController {
     }
 
     @GetMapping("/match/{matchId}")
-    @PreAuthorize("hasAnyRole('ADMIN','PLAYER')")
+    @PreAuthorize("hasRole('ADMIN')")
     ResponseEntity<List<PredictionResponse>> getByMatch(@PathVariable String matchId) {
         var predictions = getPredictions.getPredictionsByMatch(matchId);
         return ResponseEntity.ok(predictions.stream().map(PredictionResponse::from).toList());

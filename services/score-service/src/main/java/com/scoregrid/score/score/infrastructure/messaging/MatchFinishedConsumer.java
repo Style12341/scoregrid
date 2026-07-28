@@ -2,7 +2,7 @@ package com.scoregrid.score.score.infrastructure.messaging;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
-import com.scoregrid.score.score.application.ScoreMatchService;
+import com.scoregrid.score.score.domain.port.in.ScoreMatchUseCase;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.annotation.RabbitListener;
@@ -13,11 +13,11 @@ class MatchFinishedConsumer {
 
     private static final Logger log = LoggerFactory.getLogger(MatchFinishedConsumer.class);
 
-    private final ScoreMatchService scoreMatchService;
+    private final ScoreMatchUseCase scoreMatchUseCase;
     private final ObjectMapper objectMapper;
 
-    MatchFinishedConsumer(ScoreMatchService scoreMatchService) {
-        this.scoreMatchService = scoreMatchService;
+    MatchFinishedConsumer(ScoreMatchUseCase scoreMatchUseCase) {
+        this.scoreMatchUseCase = scoreMatchUseCase;
         this.objectMapper = new ObjectMapper().registerModule(new JavaTimeModule());
     }
 
@@ -29,7 +29,7 @@ class MatchFinishedConsumer {
             MatchFinishedPayload payload = objectMapper.convertValue(
                     envelope.payload(), MatchFinishedPayload.class);
 
-            scoreMatchService.scoreMatch(
+            scoreMatchUseCase.scoreMatch(
                     payload.matchId(),
                     payload.tournamentId(),
                     payload.homeScore(),

@@ -21,15 +21,15 @@ class GetRankingsService implements GetRankingsUseCase {
 
     private static final Comparator<TournamentRankingEntry> TOURNAMENT_TIEBREAK = Comparator
             .comparingInt(TournamentRankingEntry::points).reversed()
-            .thenComparingInt(TournamentRankingEntry::exactHits).reversed()
-            .thenComparingInt(TournamentRankingEntry::hits).reversed()
+            .thenComparing(Comparator.comparingInt(TournamentRankingEntry::exactHits).reversed())
+            .thenComparing(Comparator.comparingInt(TournamentRankingEntry::hits).reversed())
             .thenComparingInt(TournamentRankingEntry::predictionsScored)
             .thenComparing(TournamentRankingEntry::username);
 
     private static final Comparator<GlobalRankingEntry> GLOBAL_TIEBREAK = Comparator
             .comparingInt(GlobalRankingEntry::totalPoints).reversed()
-            .thenComparingInt(GlobalRankingEntry::exactHits).reversed()
-            .thenComparingInt(GlobalRankingEntry::totalHits).reversed()
+            .thenComparing(Comparator.comparingInt(GlobalRankingEntry::exactHits).reversed())
+            .thenComparing(Comparator.comparingInt(GlobalRankingEntry::totalHits).reversed())
             .thenComparingInt(GlobalRankingEntry::predictionsScored)
             .thenComparing(GlobalRankingEntry::username);
 
@@ -61,6 +61,56 @@ class GetRankingsService implements GetRankingsUseCase {
     }
 
     @Override
+    public List<TournamentRankingEntry> getUserRanking(String userId) {
+        List<MatchScore> allScores = matchScoreRepository.findAll();
+
+        Map<String, List<ScoredPrediction>> byTournament = allScores.stream()
+                .flatMap(ms -> ms.individualScores().stream()
+                        .filter(sp -> sp.userId().equals(userId))
+                        .map(sp -> Map.entry(ms.tournamentId(), sp)))
+                .collect(Collectors.groupingBy(
+                        Map.Entry::getKey,
+                        Collectors.mapping(Map.Entry::getValue, Collectors.toList())));
+
+        return byTournament.entrySet().stream()
+                .map(e -> {
+                    String tournamentId = e.getKey();
+                    List<ScoredPrediction> userScores = e.getValue();
+                    TournamentRankingEntry entry = toTournamentEntry(userId,
+                            resolveUsernames(Set.of(userId)).getOrDefault(userId, userId),
+                            userScores);
+                    int position = findPositionInTournament(tournamentId, userId, allScores);
+                    return new TournamentRankingEntry(position, entry.userId(), entry.username(),
+                            entry.points(), entry.hits(), entry.exactHits(),
+                            entry.predictionsScored(), entry.accuracy());
+                })
+                .sorted(Comparator.comparingInt(TournamentRankingEntry::position))
+                .toList();
+    }
+
+    private int findPositionInTournament(String tournamentId, String userId, List<MatchScore> allScores) {
+        List<MatchScore> tournamentScores = allScores.stream()
+                .filter(ms -> ms.tournamentId().equals(tournamentId))
+                .toList();
+
+        Map<String, List<ScoredPrediction>> byUser = tournamentScores.stream()
+                .flatMap(ms -> ms.individualScores().stream())
+                .collect(Collectors.groupingBy(ScoredPrediction::userId));
+
+        List<TournamentRankingEntry> sorted = byUser.entrySet().stream()
+                .map(e -> toTournamentEntry(e.getKey(), e.getKey(), e.getValue()))
+                .sorted(TOURNAMENT_TIEBREAK)
+                .toList();
+
+        for (int i = 0; i < sorted.size(); i++) {
+            if (sorted.get(i).userId().equals(userId)) {
+                return i + 1;
+            }
+        }
+        return 0;
+    }
+
+    @Override
     public List<GlobalRankingEntry> getGlobalRanking(int page, int size) {
         List<MatchScore> allScores = matchScoreRepository.findAll();
 
@@ -69,12 +119,13 @@ class GetRankingsService implements GetRankingsUseCase {
                 .collect(Collectors.groupingBy(ScoredPrediction::userId));
 
         Map<String, Long> tournamentsByUser = allScores.stream()
-                .filter(ms -> !ms.individualScores().isEmpty())
+                .flatMap(ms -> ms.individualScores().stream()
+                        .map(sp -> Map.entry(sp.userId(), ms.tournamentId())))
                 .collect(Collectors.groupingBy(
-                        ms -> ms.individualScores().getFirst().userId(),
-                        Collectors.mapping(MatchScore::tournamentId, Collectors.toSet())))
+                        Map.Entry::getKey,
+                        Collectors.mapping(Map.Entry::getValue, Collectors.toSet())))
                 .entrySet().stream()
-                .collect(Collectors.toMap(e -> e.getKey(), e -> (long) e.getValue().size()));
+                .collect(Collectors.toMap(Map.Entry::getKey, e -> (long) e.getValue().size()));
 
         Set<String> userIds = byUser.keySet();
         Map<String, String> usernames = resolveUsernames(userIds);
@@ -157,14 +208,6 @@ class GetRankingsService implements GetRankingsUseCase {
     }
 
     private Map<String, String> resolveUsernames(Set<String> userIds) {
-        try {
-            return authClient.getUsernames(userIds.stream().toList());
-        } catch (Exception e) {
-            log.warn("Failed to resolve usernames, using user IDs as fallback: {}", e.getMessage());
-            return userIds.stream().collect(Collectors.toMap(id -> id, id -> id));
-        }
+        return authClient.getUsernames(userIds.stream().toList());
     }
-
-    private static final org.slf4j.Logger log =
-            org.slf4j.LoggerFactory.getLogger(GetRankingsService.class);
 }

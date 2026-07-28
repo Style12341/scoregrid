@@ -1,7 +1,7 @@
 package com.scoregrid.score.score.infrastructure.client;
 
 import com.scoregrid.score.score.domain.port.out.AuthClientPort;
-import com.scoregrid.score.shared.security.ServiceToken;
+import com.scoregrid.score.shared.security.ServiceTokenInterceptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
@@ -22,10 +22,10 @@ class AuthRestClient implements AuthClientPort {
     private final RestClient restClient;
 
     AuthRestClient(@Value("${scoregrid.clients.auth.base-url}") String baseUrl,
-                   @Value("${scoregrid.jwt.secret}") String jwtSecret) {
+                   ServiceTokenInterceptor tokenInterceptor) {
         this.restClient = RestClient.builder()
                 .baseUrl(baseUrl)
-                .defaultHeader("Authorization", "Bearer " + ServiceToken.generate(jwtSecret, "score-service"))
+                .requestInterceptor(tokenInterceptor)
                 .build();
     }
 

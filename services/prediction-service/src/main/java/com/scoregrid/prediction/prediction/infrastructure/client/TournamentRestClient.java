@@ -4,7 +4,7 @@ import com.scoregrid.prediction.prediction.domain.port.out.MatchCachePort.Cached
 import com.scoregrid.prediction.prediction.domain.port.out.TournamentClientPort;
 import com.scoregrid.prediction.shared.error.DomainException;
 import com.scoregrid.prediction.shared.error.ErrorKind;
-import com.scoregrid.prediction.shared.security.ServiceToken;
+import com.scoregrid.prediction.shared.security.ServiceTokenInterceptor;
 import io.github.resilience4j.retry.Retry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -14,6 +14,7 @@ import org.springframework.cloud.client.circuitbreaker.CircuitBreakerFactory;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
+import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
 import java.util.function.Supplier;
@@ -32,12 +33,12 @@ class TournamentRestClient implements TournamentClientPort {
     private final Retry retry;
 
     TournamentRestClient(@Value("${scoregrid.clients.tournament.base-url}") String baseUrl,
-                         @Value("${scoregrid.jwt.secret}") String jwtSecret,
+                         ServiceTokenInterceptor tokenInterceptor,
                          CircuitBreakerFactory<?, ?> circuitBreakerFactory,
                          Retry tournamentClientRetry) {
         this.restClient = RestClient.builder()
                 .baseUrl(baseUrl)
-                .defaultHeader("Authorization", "Bearer " + ServiceToken.generate(jwtSecret, "prediction-service"))
+                .requestInterceptor(tokenInterceptor)
                 .build();
         this.circuitBreaker = circuitBreakerFactory.create(TOURNAMENT_CLIENT);
         this.retry = tournamentClientRetry;
@@ -60,23 +61,15 @@ class TournamentRestClient implements TournamentClientPort {
                     })
                     .body(MatchResponse.class);
 
-            String tournamentStatus = match.predictionsOpen() ? deriveTournamentStatus(match) : null;
-
             return new CachedMatch(
                     match.id(),
                     match.tournamentId(),
-                    tournamentStatus,
+                    match.predictionsOpen() ? "ACTIVE" : null,
                     match.status(),
-                    match.startTime()
+                    match.startTime(),
+                    match.predictionsOpen()
             );
         }, matchId);
-    }
-
-    private String deriveTournamentStatus(MatchResponse match) {
-        // predictionsOpen implies the tournament is ACTIVE and the match is SCHEDULED
-        // We cannot get tournament status directly from the match endpoint.
-        // We infer it from predictionsOpen and check separately via enrollment.
-        return "ACTIVE";
     }
 
     @Override
@@ -89,11 +82,7 @@ class TournamentRestClient implements TournamentClientPort {
                         .retrieve()
                         .toBodilessEntity();
                 return true;
-            } catch (Exception e) {
-                if (e.getMessage() != null && e.getMessage().contains("404")) {
-                    return false;
-                }
-                // Enrollment check returning 404 means the user is not enrolled
+            } catch (HttpClientErrorException.NotFound e) {
                 return false;
             }
         }, tournamentId + "/" + userId);

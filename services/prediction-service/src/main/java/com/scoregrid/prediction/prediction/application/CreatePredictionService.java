@@ -53,7 +53,11 @@ class CreatePredictionService implements CreatePredictionUseCase {
                     "Match has already started; predictions are locked.");
         }
 
-        // Step 4: tournament must be ACTIVE (already checked by predictionsOpen)
+        // Step 4: tournament must be ACTIVE
+        if (!"ACTIVE".equals(match.tournamentStatus())) {
+            throw new DomainException(ErrorKind.CONFLICT, "TOURNAMENT_NOT_ACTIVE",
+                    "The tournament is not in an active state.");
+        }
 
         // Step 5: user must be enrolled
         if (!tournamentClient.isUserEnrolled(match.tournamentId(), userId)) {
@@ -68,7 +72,6 @@ class CreatePredictionService implements CreatePredictionUseCase {
         }
 
         DerivedOutcome outcome = DerivedOutcome.from(homeScore, awayScore);
-        boolean locked = !match.predictionsOpen();
         Instant now = Instant.now();
 
         Prediction prediction = new Prediction(
@@ -80,7 +83,7 @@ class CreatePredictionService implements CreatePredictionUseCase {
                 homeScore,
                 awayScore,
                 outcome,
-                locked,
+                false,
                 now,
                 now
         );

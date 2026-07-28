@@ -3,7 +3,7 @@ package com.scoregrid.score.score.infrastructure.client;
 import com.scoregrid.score.score.domain.port.out.PredictionClientPort;
 import com.scoregrid.score.shared.error.DomainException;
 import com.scoregrid.score.shared.error.ErrorKind;
-import com.scoregrid.score.shared.security.ServiceToken;
+import com.scoregrid.score.shared.security.ServiceTokenInterceptor;
 import io.github.resilience4j.retry.Retry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,12 +30,12 @@ class PredictionRestClient implements PredictionClientPort {
     private final Retry retry;
 
     PredictionRestClient(@Value("${scoregrid.clients.prediction.base-url}") String baseUrl,
-                         @Value("${scoregrid.jwt.secret}") String jwtSecret,
+                         ServiceTokenInterceptor tokenInterceptor,
                          CircuitBreakerFactory<?, ?> circuitBreakerFactory,
                          Retry predictionClientRetry) {
         this.restClient = RestClient.builder()
                 .baseUrl(baseUrl)
-                .defaultHeader("Authorization", "Bearer " + ServiceToken.generate(jwtSecret, "score-service"))
+                .requestInterceptor(tokenInterceptor)
                 .build();
         this.circuitBreaker = circuitBreakerFactory.create(PREDICTION_CLIENT);
         this.retry = predictionClientRetry;
