@@ -65,4 +65,14 @@ public class MatchEntity {
     public Integer getAwayScore() { return awayScore; }
     public void setAwayScore(Integer awayScore) { this.awayScore = awayScore; }
     public void setStatus(String status) { this.status = status; }
+
+    // -- missing setters needed by MatchMapper ---------------------------------
+
+    public void setId(Long id) { this.id = id; }
+    public void setTournamentId(Long tournamentId) { this.tournamentId = tournamentId; }
+    public void setGroupId(Long groupId) { this.groupId = groupId; }
+    public void setPhaseId(Long phaseId) { this.phaseId = phaseId; }
+    public void setHomeTeam(TeamJpaEntity homeTeam) { this.homeTeam = homeTeam; }
+    public void setAwayTeam(TeamJpaEntity awayTeam) { this.awayTeam = awayTeam; }
+    public void setStartTime(Instant startTime) { this.startTime = startTime; }
 }

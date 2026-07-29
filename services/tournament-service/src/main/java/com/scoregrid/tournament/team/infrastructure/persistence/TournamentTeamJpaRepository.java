@@ -13,4 +13,6 @@ public interface TournamentTeamJpaRepository extends JpaRepository<TournamentTea
     List<Long> findTeamIdsByTournamentId(Long tournamentId);
 
     boolean existsByTournamentId(Long tournamentId);
+
+    boolean existsByTournamentIdAndTeamId(Long tournamentId, Long teamId);
 }

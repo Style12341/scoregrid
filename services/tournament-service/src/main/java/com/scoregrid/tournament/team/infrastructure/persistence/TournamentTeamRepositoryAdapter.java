@@ -38,4 +38,9 @@ class TournamentTeamRepositoryAdapter implements TournamentTeamRepository {
     public boolean existsByTournamentId(Long tournamentId) {
         return jpaRepository.existsByTournamentId(tournamentId);
     }
+
+    @Override
+    public boolean existsByTournamentIdAndTeamId(Long tournamentId, Long teamId) {
+        return jpaRepository.existsByTournamentIdAndTeamId(tournamentId, teamId);
+    }
 }

@@ -8,7 +8,7 @@
 package com.scoregrid.tournament.match.infrastructure.web;
 
 import com.scoregrid.tournament.match.infrastructure.persistence.MatchEntity;
-import com.scoregrid.tournament.match.infrastructure.persistence.MatchRepository;
+import com.scoregrid.tournament.match.infrastructure.persistence.MatchJpaRepository;
 import com.scoregrid.tournament.shared.config.RabbitConfig;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.http.ResponseEntity;
@@ -28,10 +28,10 @@ import java.util.UUID;
 @RequestMapping("/api/matches")
 class MatchController {
 
-    private final MatchRepository matchRepository;
+    private final MatchJpaRepository matchRepository;
     private final RabbitTemplate rabbitTemplate;
 
-    MatchController(MatchRepository matchRepository, RabbitTemplate rabbitTemplate) {
+    MatchController(MatchJpaRepository matchRepository, RabbitTemplate rabbitTemplate) {
         this.matchRepository = matchRepository;
         this.rabbitTemplate = rabbitTemplate;
     }
