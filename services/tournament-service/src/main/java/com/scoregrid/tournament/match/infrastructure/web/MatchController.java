@@ -1,104 +1,109 @@
-// STREAM C STUB — Replace when building match feature (Paggi, Stream B).
-// Known issues to fix during replacement:
-//   - Line 44: Re-derives predictionsOpen from Instant.now() — must trust tournament-service's computation (AGENTS.md hard rule 5)
-//   - Lines 69-103: PUT /api/matches/{id}/result missing @PreAuthorize("hasRole('ADMIN')") — contracts.md requires ADMIN
-//   - Lines 42, 72: Raw ResponseEntity.notFound() bypasses GlobalExceptionHandler — use DomainException(NOT_FOUND, "NOT_FOUND", ...)
-//   - See docs/review-stream-c.md findings C5 and C8 for the same patterns caught in prediction-service
-
 package com.scoregrid.tournament.match.infrastructure.web;
 
-import com.scoregrid.tournament.match.infrastructure.persistence.MatchEntity;
-import com.scoregrid.tournament.match.infrastructure.persistence.MatchJpaRepository;
-import com.scoregrid.tournament.shared.config.RabbitConfig;
-import org.springframework.amqp.rabbit.core.RabbitTemplate;
+import com.scoregrid.tournament.match.domain.model.MatchStatus;
+import com.scoregrid.tournament.match.domain.port.in.CreateMatch;
+import com.scoregrid.tournament.match.domain.port.in.GetMatch;
+import com.scoregrid.tournament.match.domain.port.in.ListMatches;
+import com.scoregrid.tournament.match.domain.port.in.SetMatchResult;
+import com.scoregrid.tournament.match.domain.port.in.UpdateMatch;
+import com.scoregrid.tournament.match.infrastructure.web.dto.CreateMatchRequest;
+import com.scoregrid.tournament.match.infrastructure.web.dto.MatchResponse;
+import com.scoregrid.tournament.match.infrastructure.web.dto.SetMatchResultRequest;
+import com.scoregrid.tournament.match.infrastructure.web.dto.UpdateMatchRequest;
+import com.scoregrid.tournament.shared.error.DomainException;
+import com.scoregrid.tournament.shared.error.ErrorKind;
+import jakarta.validation.Valid;
 import org.springframework.http.ResponseEntity;
+import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-import java.time.Instant;
-import java.util.LinkedHashMap;
-import java.util.Map;
-import java.util.UUID;
+import java.net.URI;
+import java.util.List;
+import java.util.Optional;
 
 @RestController
-@RequestMapping("/api/matches")
 class MatchController {
 
-    private final MatchJpaRepository matchRepository;
-    private final RabbitTemplate rabbitTemplate;
+    private final CreateMatch createMatch;
+    private final GetMatch getMatch;
+    private final ListMatches listMatches;
+    private final UpdateMatch updateMatch;
+    private final SetMatchResult setMatchResult;
 
-    MatchController(MatchJpaRepository matchRepository, RabbitTemplate rabbitTemplate) {
-        this.matchRepository = matchRepository;
-        this.rabbitTemplate = rabbitTemplate;
+    MatchController(CreateMatch createMatch, GetMatch getMatch,
+                    ListMatches listMatches, UpdateMatch updateMatch,
+                    SetMatchResult setMatchResult) {
+        this.createMatch = createMatch;
+        this.getMatch = getMatch;
+        this.listMatches = listMatches;
+        this.updateMatch = updateMatch;
+        this.setMatchResult = setMatchResult;
     }
 
-    @GetMapping("/{id}")
-    ResponseEntity<Map<String, Object>> getMatch(@PathVariable Long id) {
-        var match = matchRepository.findById(id).orElse(null);
-        if (match == null) return ResponseEntity.notFound().build();
+    @PostMapping("/api/tournaments/{id}/matches")
+    @PreAuthorize("hasRole('ADMIN')")
+    ResponseEntity<MatchResponse> create(@PathVariable Long id,
+                                          @Valid @RequestBody CreateMatchRequest request) {
+        Long groupId = request.groupId() != null ? Long.valueOf(request.groupId()) : null;
+        Long phaseId = request.phaseId() != null ? Long.valueOf(request.phaseId()) : null;
 
-        boolean predictionsOpen = "SCHEDULED".equals(match.getStatus())
-                && Instant.now().isBefore(match.getStartTime());
+        var cmd = new CreateMatch.Command(id, groupId, phaseId,
+                Long.valueOf(request.homeTeamId()), Long.valueOf(request.awayTeamId()),
+                request.startTime());
+        var match = createMatch.execute(cmd);
+        var response = MatchResponse.from(match);
+        return ResponseEntity.created(URI.create("/api/matches/" + response.id())).body(response);
+    }
 
-        Map<String, Object> response = new LinkedHashMap<>();
-        response.put("id", match.getId().toString());
-        response.put("tournamentId", match.getTournamentId().toString());
-        response.put("groupId", match.getGroupId() != null ? match.getGroupId().toString() : null);
-        response.put("phaseId", match.getPhaseId() != null ? match.getPhaseId().toString() : null);
-        response.put("homeTeam", Map.of(
-                "id", match.getHomeTeam().getId().toString(),
-                "name", match.getHomeTeam().getName(),
-                "shortName", match.getHomeTeam().getShortName()));
-        response.put("awayTeam", Map.of(
-                "id", match.getAwayTeam().getId().toString(),
-                "name", match.getAwayTeam().getName(),
-                "shortName", match.getAwayTeam().getShortName()));
-        response.put("startTime", match.getStartTime().toString());
-        response.put("status", match.getStatus());
-        response.put("homeScore", match.getHomeScore());
-        response.put("awayScore", match.getAwayScore());
-        response.put("predictionsOpen", predictionsOpen);
+    @GetMapping("/api/matches/{id}")
+    ResponseEntity<MatchResponse> get(@PathVariable Long id) {
+        var match = getMatch.execute(id);
+        return ResponseEntity.ok(MatchResponse.from(match));
+    }
 
+    @GetMapping("/api/tournaments/{id}/matches")
+    ResponseEntity<List<MatchResponse>> list(@PathVariable Long id,
+                                              @RequestParam(required = false) String status) {
+        Optional<MatchStatus> statusFilter = Optional.empty();
+        if (status != null && !status.isBlank()) {
+            try {
+                statusFilter = Optional.of(MatchStatus.valueOf(status.toUpperCase()));
+            } catch (IllegalArgumentException e) {
+                throw new DomainException(ErrorKind.VALIDATION, "VALIDATION_FAILED",
+                        "Invalid status value: " + status);
+            }
+        }
+        var matches = listMatches.execute(id, statusFilter);
+        var response = matches.stream().map(MatchResponse::from).toList();
         return ResponseEntity.ok(response);
     }
 
-    @PutMapping("/{id}/result")
-    ResponseEntity<Void> setResult(@PathVariable Long id, @RequestBody Map<String, Integer> body) {
-        var match = matchRepository.findById(id).orElse(null);
-        if (match == null) return ResponseEntity.notFound().build();
+    @PutMapping("/api/matches/{id}")
+    @PreAuthorize("hasRole('ADMIN')")
+    ResponseEntity<MatchResponse> update(@PathVariable Long id,
+                                          @Valid @RequestBody UpdateMatchRequest request) {
+        Long groupId = request.groupId() != null ? Long.valueOf(request.groupId()) : null;
+        Long phaseId = request.phaseId() != null ? Long.valueOf(request.phaseId()) : null;
 
-        int homeScore = body.get("homeScore");
-        int awayScore = body.get("awayScore");
-        String outcome = homeScore > awayScore ? "HOME_WIN" : homeScore < awayScore ? "AWAY_WIN" : "DRAW";
+        var cmd = new UpdateMatch.Command(id, groupId, phaseId,
+                Long.valueOf(request.homeTeamId()), Long.valueOf(request.awayTeamId()),
+                request.startTime(), request.status());
+        var match = updateMatch.execute(cmd);
+        return ResponseEntity.ok(MatchResponse.from(match));
+    }
 
-        match.setHomeScore(homeScore);
-        match.setAwayScore(awayScore);
-        match.setStatus("FINISHED");
-        matchRepository.save(match);
-
-        Map<String, Object> payload = Map.of(
-                "matchId", match.getId().toString(),
-                "tournamentId", match.getTournamentId().toString(),
-                "homeTeamId", match.getHomeTeam().getId().toString(),
-                "awayTeamId", match.getAwayTeam().getId().toString(),
-                "homeScore", homeScore,
-                "awayScore", awayScore,
-                "outcome", outcome,
-                "finishedAt", Instant.now().toString());
-
-        Map<String, Object> envelope = Map.of(
-                "eventId", UUID.randomUUID().toString(),
-                "eventType", "match.finished",
-                "occurredAt", Instant.now().toString(),
-                "version", 1,
-                "payload", payload);
-
-        rabbitTemplate.convertAndSend(RabbitConfig.EXCHANGE, "match.finished", envelope);
-
+    @PutMapping("/api/matches/{id}/result")
+    @PreAuthorize("hasRole('ADMIN')")
+    ResponseEntity<Void> setResult(@PathVariable Long id,
+                                    @Valid @RequestBody SetMatchResultRequest request) {
+        var cmd = new SetMatchResult.Command(id, request.homeScore(), request.awayScore());
+        setMatchResult.execute(cmd);
         return ResponseEntity.noContent().build();
     }
 }
