@@ -1,16 +1,11 @@
 import { api } from "@/lib/api";
+import type { Match } from "@/features/tournaments/types/tournament";
 
-export interface MatchResult {
-  id: string;
-  tournamentId: string;
-  homeTeam: { id: string; name: string; shortName: string };
-  awayTeam: { id: string; name: string; shortName: string };
-  startTime: string;
-  status: string;
-  homeScore: number | null;
-  awayScore: number | null;
-  predictionsOpen: boolean;
-}
+// Re-export Match type for backward compatibility (used by PredictionPage,
+// AdminResultsPage, etc.). The two types are structurally identical.
+export type MatchResult = Match;
+
+// ── Matches (kept for backward compatibility) ─────────────────────────────
 
 export async function getMatch(matchId: string): Promise<MatchResult> {
   const { data } = await api.get<MatchResult>(`/api/matches/${matchId}`);
@@ -20,14 +15,21 @@ export async function getMatch(matchId: string): Promise<MatchResult> {
 export async function submitResult(
   matchId: string,
   homeScore: number,
-  awayScore: number
+  awayScore: number,
 ): Promise<void> {
   await api.put(`/api/matches/${matchId}/result`, { homeScore, awayScore });
 }
 
-export async function getMatches(status?: string): Promise<MatchResult[]> {
+/** Get matches for a tournament, optionally filtered by status. */
+export async function getMatches(
+  tournamentId: string,
+  status?: string,
+): Promise<MatchResult[]> {
   const params: Record<string, string> = {};
   if (status) params.status = status;
-  const { data } = await api.get<MatchResult[]>("/api/tournaments/.../matches", { params });
+  const { data } = await api.get<MatchResult[]>(
+    `/api/tournaments/${tournamentId}/matches`,
+    { params },
+  );
   return data;
 }

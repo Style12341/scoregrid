@@ -3,7 +3,6 @@ import { AuthProvider } from "./auth/AuthContext";
 import { RequireAuth } from "./auth/RequireAuth";
 import { AppLayout } from "./components/layout/AppLayout";
 import { EmptyState } from "./components/common/states";
-import { usePageHeader } from "./components/layout/page-header";
 import { LoginPage } from "./features/auth/LoginPage";
 import { RegisterPage } from "./features/auth/RegisterPage";
 import { DashboardPage } from "./features/dashboard/DashboardPage";
@@ -12,24 +11,10 @@ import { TournamentRankingPage } from "./features/rankings/TournamentRankingPage
 import { PredictionPage } from "./features/predictions/PredictionPage";
 import { MyPredictionsPage } from "./features/predictions/MyPredictionsPage";
 import { AdminResultsPage } from "./features/admin/AdminResultsPage";
-
-/**
- * Route map for ScoreGrid.
- *
- * Each placeholder names its owning workstream (docs/workstreams.md). Replace a
- * placeholder with the real screen; do not add routes owned by another stream
- * without telling them — this file is shared.
- */
-function Placeholder({ title, owner }: { title: string; owner: string }) {
-  usePageHeader(title);
-
-  return (
-    <EmptyState
-      title="Pantalla en construcción"
-      description={`Todavía no está construida. Responsable: ${owner} (ver docs/workstreams.md).`}
-    />
-  );
-}
+import { TournamentListPage } from "./features/tournaments/pages/TournamentListPage";
+import { TournamentDetailPage } from "./features/tournaments/pages/TournamentDetailPage";
+import { AdminDashboardPage } from "./features/admin/pages/AdminDashboardPage";
+import { AdminTournamentManagePage } from "./features/admin/pages/AdminTournamentManagePage";
 
 export default function App() {
   return (
@@ -50,13 +35,10 @@ export default function App() {
                 element={<TournamentRankingPage />}
               />
 
-              <Route
-                path="/tournaments"
-                element={<Placeholder title="Torneos" owner="Stream B — Paggi" />}
-              />
+              <Route path="/tournaments" element={<TournamentListPage />} />
               <Route
                 path="/tournaments/:tournamentId"
-                element={<Placeholder title="Detalle de torneo" owner="Stream B — Paggi" />}
+                element={<TournamentDetailPage />}
               />
 
               <Route
@@ -73,13 +55,14 @@ export default function App() {
           {/* Admin only */}
           <Route element={<RequireAuth role="ADMIN" />}>
             <Route element={<AppLayout />}>
-              <Route
-                path="/admin"
-                element={<Placeholder title="Panel admin" owner="Stream B — Paggi" />}
-              />
+              <Route path="/admin" element={<AdminDashboardPage />} />
               <Route
                 path="/admin/results"
                 element={<AdminResultsPage />}
+              />
+              <Route
+                path="/admin/tournaments/:tournamentId"
+                element={<AdminTournamentManagePage />}
               />
             </Route>
           </Route>
