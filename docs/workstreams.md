@@ -40,14 +40,14 @@ Verified working at scaffold time: all five services compile, the frontend build
 | Stream | Owner | State |
 |--------|-------|-------|
 | **A** — Identity, Edge & Platform | Bernard | **Done.** `auth-service` end to end (register, login, `/me`, `/api/users`, `/api/users/batch`, 81 tests). `api-gateway` with five route groups, edge JWT rejection, CORS. Screens: Login, Register, Dashboard, Tournament Ranking, Global Ranking. |
-| **B** — Tournament Core | Paggi | **Backend done, frontend pending.** `tournament-service` with CRUD, state machine, teams, enrolment (60+ tests). Stream C stubs (`MatchController`, `ParticipantController`) were refactored but temporary stubs never fully cleaned up. Screens (tournament list, detail, admin panel) are still unbuilt. Also responsible for the Testcontainers / `@WebMvcTest` / `@DataMongoTest` suite in `prediction-service` and `score-service` (only two unit tests exist from Stream C). |
+| **B** — Tournament Core | Paggi | **Done.** `tournament-service` end to end: tournament CRUD, team catalogue, enrolment, groups, phases, matches (state machine, events, result loading), all with 229 tests. Frontend screens (tournament list, detail, admin panel) shipped in `Feat/workstream-b-completion`. Stream C stubs replaced with hexagonal implementation. Also responsible for the Testcontainers / `@WebMvcTest` / `@DataMongoTest` suite in `prediction-service` and `score-service` (only two unit tests exist from Stream C). |
 | **C** — Predictions & Scoring | Werlen | **Done** — both services implemented hexagonally end to end, three screens shipped, merged to `main` in #3. Only two unit tests; missing Testcontainers, `@WebMvcTest` and `@DataMongoTest` suite per the definition of done below. |
 
 Stream C could not integrate against nothing, so it wrote the minimum stubs it needed inside `auth-service` and `tournament-service`. Stream A has replaced its stub. Stream B refactored them but did not fully clean up the temporary stubs left by Stream C.
 
 **Outstanding, in rough dependency order:**
 
-1. **Paggi** — frontend screens (tournament list, tournament detail, admin panel), cleanup of remaining Stream C stubs, and the Testcontainers / `@WebMvcTest` / `@DataMongoTest` suite in `prediction-service` and `score-service` (only two unit tests exist from Stream C).
+1. **Paggi** — cleanup of remaining Stream C stubs, and the Testcontainers / `@WebMvcTest` / `@DataMongoTest` suite in `prediction-service` and `score-service` (only two unit tests exist from Stream C).
 2. **All three** — the `ServiceToken` contracts PR (see [Open contract questions](#open-contract-questions)).
 
 ---
