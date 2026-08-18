@@ -43,21 +43,17 @@ Verified working: all six Spring applications compile, the frontend builds, `doc
 | **B** — Tournament Core | Paggi | **Done.** `tournament-service` end to end: tournament CRUD, team catalogue, enrolment, groups, phases, matches (state machine, events, result loading), with the complete integration suite. Frontend screens (tournament list, detail, admin panel) shipped in `Feat/workstream-b-completion`. |
 | **C** — Predictions & Scoring | Werlen | **Done** — both services implemented hexagonally end to end, three screens shipped, and controller/persistence/integration tests are present. |
 
-The three streams are implemented end to end. The remaining cross-service contract item is the documented service-to-service JWT mechanism.
+The three streams are implemented end to end. The internal service-to-service JWT mechanism is documented in [`contracts.md`](contracts.md#internal-service-to-service-jwts).
 
-**Outstanding, in rough dependency order:**
-
-1. **All three** — the `ServiceToken` contracts PR (see [Open contract questions](#open-contract-questions)).
+**Outstanding:** None for the current v1 scope.
 
 ---
 
-## Open contract questions
+## Cross-service authentication (resolved for v1)
 
-Raise these as PRs against [`contracts.md`](contracts.md) with all three approvals. Do not resolve them by writing more code.
+The v1 decision is to keep the existing local `ServiceToken` implementations in `prediction-service` and `score-service`. They mint an HS256 token with the service name in `sub`, `ADMIN` in `roles`, a 24-hour lifetime, and a fresh token per outbound request. The complete claim set and permitted call paths are in [`contracts.md`](contracts.md#internal-service-to-service-jwts).
 
-**Service-to-service authentication is undocumented.** `prediction-service` and `score-service` each carry a `ServiceToken` helper that mints an HS256 JWT from `SCOREGRID_JWT_SECRET` with `sub` set to the service name (`"score-service"`) and `roles: ["ADMIN"]`, and attach it to outbound REST calls. `contracts.md` states that `sub` is a user ID and that `roles` carries `PLAYER` / `ADMIN` — so today a downstream service cannot distinguish a service caller from a genuinely ADMIN human, and `CurrentUser.requireId()` on such a request returns a string that is not a user ID.
-
-Needs an explicit decision on: the claim shape for a service principal, whether services should hold `ADMIN` at all or a distinct `SERVICE` role, and whether the token is minted per call or cached. Until it is decided, do not add a third copy of `ServiceToken`.
+Service tokens are internal credentials, not user identities. They are valid only for service endpoints that do not use `CurrentUser.requireId()`. Keep the implementations local to each service; do not extract shared DTOs or security libraries.
 
 ---
 
@@ -168,7 +164,7 @@ Nobody waits. Every dependency has a stub.
 | Werlen (ranking usernames) | `GET /api/users/batch` | Bernard | **Resolved.** Shipped as part of `auth-service`. |
 | Bernard (rankings UI) | `GET /api/rankings/**` | Werlen | **Shipped.** Call `score-service` directly. |
 | Paggi (fixture UI) | Nothing from anyone | — | — |
-| Everyone | Contracts | Phase 0 | Frozen — with one undocumented addition, see [Open contract questions](#open-contract-questions). |
+| Everyone | Contracts | Phase 0 | Frozen — includes the internal service-to-service JWT contract. |
 
 The one hard sequencing constraint in the whole project was Bernard's design system in week one. It has shipped, so nothing blocks anyone now — everything else is stubbable, which is exactly why the contracts are frozen up front.
 

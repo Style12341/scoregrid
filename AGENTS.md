@@ -50,9 +50,9 @@ The application is implemented end to end and the full Compose stack is verified
 - `tournament-service` end to end and hexagonal: Tournament CRUD with state machine (DRAFT → ACTIVE → FINISHED/CLOSED), Team catalogue CRUD, tournament-team assignment (idempotent), player enrolment (join, list, single lookup), groups, phases, full match management with state machine, invariant validation, event publishing, and result loading. The complete domain, persistence and Testcontainers suite passes. Frontend screens (tournament list, detail, admin panel: groups/phases/fixture/results management) shipped in `Feat/workstream-b-completion`.
 
 **Current cross-service follow-up:**
-- The service-to-service JWT mechanism needs the contracts PR described below. The prediction and scoring controller, persistence and Testcontainers suites are implemented and passing.
+- The service-to-service JWT mechanism is documented in [`docs/contracts.md`](docs/contracts.md#internal-service-to-service-jwts). The prediction and scoring controller, persistence and Testcontainers suites are implemented and passing.
 
-**Undocumented cross-service mechanism — needs a contracts PR.** Stream C introduced `ServiceToken` (duplicated in `prediction-service` and `score-service`) which mints an HS256 JWT from `SCOREGRID_JWT_SECRET` with `sub` set to the *service name* and `roles: ["ADMIN"]`, for service-to-service REST calls. This is load-bearing and is **not** in [`docs/contracts.md`](docs/contracts.md) — which currently states `sub` is always a user ID. Do not copy the pattern into a third service until the contract is amended by PR with all three approvals. See [`docs/workstreams.md`](docs/workstreams.md#open-contract-questions).
+**Documented cross-service mechanism.** Stream C introduced `ServiceToken` (duplicated in `prediction-service` and `score-service`) which mints an HS256 JWT from `SCOREGRID_JWT_SECRET` with `sub` set to the service name and `roles: ["ADMIN"]`, for service-to-service REST calls. It is an internal credential, not a user identity, and is only valid for endpoints that do not use `CurrentUser.requireId()`. Keep the implementation local to each service; do not extract shared DTOs or security libraries.
 
 ---
 
