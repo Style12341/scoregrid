@@ -40,6 +40,16 @@ server:
   port: 8082
   shutdown: graceful
 
+eureka:
+  client:
+    enabled: ${EUREKA_CLIENT_ENABLED:true}
+    service-url:
+      defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE:http://localhost:8761/eureka/}
+    register-with-eureka: true
+    fetch-registry: true
+  instance:
+    prefer-ip-address: ${EUREKA_INSTANCE_PREFER_IP_ADDRESS:true}
+
 scoregrid:
   jwt:
     secret: ${SCOREGRID_JWT_SECRET:dev-only-insecure-secret-do-not-deploy-anywhere-real}

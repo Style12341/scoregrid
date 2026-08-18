@@ -36,7 +36,7 @@ The Initializr gets all of this right. **Generate every service from the Initial
 
 ## Generating the services
 
-> **Already done.** All five services exist under `services/`, generated with exactly these commands and verified to compile. This section is kept so you can regenerate a service or add a sixth without guessing.
+> **Already done.** The five business services and Eureka registry exist under `services/`, generated with the conventions below and verified to compile. This section is kept so you can regenerate a service or add another without guessing.
 
 Run these from the repository root. Each produces a self-contained Maven project with its own wrapper.
 
@@ -387,7 +387,7 @@ RESULTS_PROVIDER_API_KEY=
 
 ```bash
 docker compose up -d postgres mongodb rabbitmq  # infra only, ~400 MB
-docker compose up -d                            # 9 containers, ~1.6 GB
+docker compose up -d                            # 10 containers, ~1.6 GB
 docker compose --profile observability up -d    # + Prometheus, Grafana, Loki, Promtail
 ```
 
@@ -419,23 +419,23 @@ Prometheus, Grafana and Loki are behind the `observability` profile so day-to-da
 
 ---
 
-## What is already scaffolded
+## What is already in place
 
-Phase 0 is done. In place and verified:
+The platform and feature work are implemented. In place and verified:
 
 | | |
 |---|---|
-| Five Boot 4.1.0 / Java 21 services | compile clean (`./mvnw compile`) |
+| Five Boot 4.1.0 / Java 21 business services plus Eureka | compile clean (`./mvnw compile`) |
 | `shared/` package in each service | `SecurityConfig` (HS256 JWT + role mapping), `GlobalExceptionHandler`, `ApiError`, `ErrorKind`, `DomainException`, `CurrentUser` |
 | `ResilienceConfig` | tournament, prediction, score — named circuit breaker instances |
 | `RabbitConfig` | full topology from [`contracts.md`](contracts.md#events--rabbitmq): exchange, DLX, both queues, both DLQs |
 | `application.yml` per service | ports, datasources, actuator probes, Prometheus, tracing, `docker` profile with JSON logging |
-| `compose.yaml` | 9 core containers, health-gated startup, `observability` profile |
+| `compose.yaml` | 10 core containers, health-gated startup, `observability` profile |
 | `infra/` | Prometheus, Loki, Promtail, Grafana datasources; Postgres and MongoDB provisioning scripts |
 | `frontend/` | Vite + React 19 + TS, axios client with JWT interceptor, auth context, route guard, route map |
 | Design system | Tailwind 4 + shadcn/ui restyled to the interface mock — layout shell, empty/error/loading states, `FormField`, status badges. See [`AGENTS.md`](../AGENTS.md#the-design-system) |
-| Login screen | The one real screen, wired to `auth-service` |
-| CI | `.github/workflows/ci.yml` — five services in a matrix, frontend lint + build, compose validation |
+| Frontend screens | Login, register, dashboard, rankings, tournaments, predictions and admin result flows |
+| CI | `.github/workflows/ci.yml` — Eureka plus five services in a matrix, frontend lint + build, compose validation |
 
 **First thing on a fresh clone:**
 
@@ -445,11 +445,11 @@ openssl rand -base64 48        # paste into SCOREGRID_JWT_SECRET
 docker compose up -d --build
 ```
 
-The first build compiles five Spring services and pulls their dependencies — budget 5–10 minutes. After that, layer caching makes it fast.
+The first build compiles six Spring applications and pulls their dependencies — budget 5–10 minutes. After that, layer caching makes it fast.
 
-### What is deliberately not scaffolded
+### What remains deliberately out of scope
 
-No entities, no controllers, no migrations, and no screens beyond Login. Those are the [workstreams](workstreams.md). The scaffolding stops exactly where design decisions start.
+Automatic bracket generation, group standings tables, notifications, top-scorer predictions, private tournaments and per-tournament scoring rules remain out of scope. See the [PRD](PRD.md#non-goals).
 
 The one Phase 0 step nobody can do for you: **read [`contracts.md`](contracts.md) together and freeze it** before splitting up.
 

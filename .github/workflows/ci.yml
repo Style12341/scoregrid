@@ -15,10 +15,11 @@ jobs:
     name: ${{ matrix.service }}
     runs-on: ubuntu-latest
     strategy:
-      # One red service should not hide the state of the other four.
+      # One red service should not hide the state of the other services.
       fail-fast: false
       matrix:
         service:
+          - eureka-server
           - api-gateway
           - auth-service
           - tournament-service
@@ -42,6 +43,9 @@ jobs:
           # SecurityConfig refuses to start on a secret under 32 bytes, so the
           # context-load tests need a real-shaped value. Not a secret: CI only.
           SCOREGRID_JWT_SECRET: ci-only-placeholder-secret-value-at-least-32-bytes
+          # Business-service tests run without a registry. Eureka Server itself
+          # must keep its client infrastructure enabled for its context test.
+          EUREKA_CLIENT_ENABLED: ${{ matrix.service == 'eureka-server' && 'true' || 'false' }}
 
   frontend:
     name: frontend

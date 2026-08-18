@@ -10,10 +10,11 @@ Instructions for AI coding agents working in the ScoreGrid repository.
 
 ScoreGrid is a football prediction pool: admins build tournaments with group stages and knockout phases, participants predict match scores, the system scores predictions automatically and maintains per-tournament and global rankings.
 
-Five Spring Boot services, a React frontend, two PostgreSQL databases and two MongoDB databases (sharing one instance per engine, isolated by per-service logins), RabbitMQ, all under one Docker Compose.
+Five Spring Boot business services plus a Eureka registry, a React frontend, two PostgreSQL databases and two MongoDB databases (sharing one instance per engine, isolated by per-service logins), RabbitMQ, all under one Docker Compose.
 
 | Service | Port | Owns | Database |
 |---------|------|------|----------|
+| `eureka-server` | 8761 | Service registry and discovery | — |
 | `api-gateway` | 8080 | Routing, edge JWT validation, CORS | — |
 | `auth-service` | 8081 | Users, roles, JWT issuance | PostgreSQL |
 | `tournament-service` | 8082 | Tournaments, teams, groups, phases, matches, results, enrolments | PostgreSQL |
@@ -26,17 +27,17 @@ Five Spring Boot services, a React frontend, two PostgreSQL databases and two Mo
 
 ## 2. Current state
 
-Scaffolding is complete and verified. Stream C (predictions and scoring) has landed. Streams A and B are still mostly unbuilt, and both currently carry **temporary stubs written by Stream C** that their owners are expected to replace.
+The application is implemented end to end and the full Compose stack is verified locally. Eureka is the service registry; the Gateway and internal REST clients use discovery by default.
 
 **Platform — done:**
 - Service skeletons, `shared/` package (security, error handling, current-user), `ResilienceConfig`, `RabbitConfig` with the full messaging topology, `application.yml` per service.
-- `compose.yaml` — one Postgres and one MongoDB, each with one database and one login per service, provisioned from `infra/postgres/init` and `infra/mongo/init`; RabbitMQ; five services; frontend. `infra/` also holds the observability config.
-- Git repository and `.github/workflows/ci.yml` — five services in a matrix, frontend lint + build, compose validation on both profiles. Green on `main`.
+- `compose.yaml` — one Postgres and one MongoDB, each with one database and one login per service, provisioned from `infra/postgres/init` and `infra/mongo/init`; RabbitMQ; Eureka; five services; frontend. `infra/` also holds the observability config.
+- Git repository and `.github/workflows/ci.yml` — Eureka plus five services in a matrix, frontend lint + build, compose validation on both profiles.
 - Frontend: axios client, auth context, route guard, route map, and the **design system** (Tailwind v4 + shadcn/ui restyled to the mock) — see §8.
 
 **Stream C — done** (`prediction-service`, `score-service`):
 - `prediction-service`: full hexagonal slice — domain model, ports, the six-step validation chain, Mongo persistence with the unique index on `(userId, matchId)`, in-memory match cache fed by `match.scheduled` / `match.updated`, `RestClient` fallback to tournament-service behind a circuit breaker, six controller endpoints, event publisher.
-- `score-service`: `ScoringRuleV1` (3 exact / 1 outcome / 0) with the parameterised table from `contracts.md`, idempotent per-match scoring by replace, tournament and global ranking projections with the tie-break chain, `match.finished` consumer, REST clients to prediction-service and auth-service, five ranking endpoints.
+- `score-service`: `ScoringRuleV1` (3 exact / 1 outcome / 0) with the parameterised table from `contracts.md`, idempotent per-match scoring by replace, tournament and global ranking projections with the tie-break chain, `match.finished` consumer, REST clients to prediction-service and auth-service, ranking endpoints.
 - Screens: `PredictionPage`, `MyPredictionsPage`, `AdminResultsPage`, wired into `App.tsx`.
 
 **Stream A — done** (`auth-service`, `api-gateway`, frontend foundation):
@@ -45,11 +46,11 @@ Scaffolding is complete and verified. Stream C (predictions and scoring) has lan
 - Screens: Login, Register, Dashboard, Tournament Ranking, Global Ranking.
 - Lombok and MapStruct are the agreed project-wide convention; `auth-service` is the reference wiring (see the annotation-processor ordering in its POM).
 
-**Stream B — in progress** (`tournament-service`):
-- `tournament-service` end to end and hexagonal: Tournament CRUD with state machine (DRAFT → ACTIVE → FINISHED/CLOSED), Team catalogue CRUD, tournament-team assignment (idempotent), player enrolment (join, list, single lookup), groups, phases, full match management with state machine, invariant validation, event publishing, and result loading. 229 tests: domain unit, use-case unit, `@DataJpaTest` persistence integration, integration tests with Testcontainers against real PostgreSQL. It replaced the Stream C stubs (`MatchController` was refactored, `ParticipantController` was deleted). Frontend screens (tournament list, detail, admin panel: groups/phases/fixture/results management) shipped in `Feat/workstream-b-completion`.
+**Stream B — done** (`tournament-service`):
+- `tournament-service` end to end and hexagonal: Tournament CRUD with state machine (DRAFT → ACTIVE → FINISHED/CLOSED), Team catalogue CRUD, tournament-team assignment (idempotent), player enrolment (join, list, single lookup), groups, phases, full match management with state machine, invariant validation, event publishing, and result loading. The complete domain, persistence and Testcontainers suite passes. Frontend screens (tournament list, detail, admin panel: groups/phases/fixture/results management) shipped in `Feat/workstream-b-completion`.
 
-**Does not exist yet:**
-- Frontend screens and tests in `prediction-service` and `score-service` (assigned to Stream B). Stream C has two unit tests (`ScoringRuleV1Test`, `DerivedOutcomeTest`) and no Testcontainers, `@WebMvcTest` or `@DataMongoTest` suite, against the definition of done in [`docs/workstreams.md`](docs/workstreams.md#working-agreements).
+**Current cross-service follow-up:**
+- The service-to-service JWT mechanism needs the contracts PR described below. The prediction and scoring controller, persistence and Testcontainers suites are implemented and passing.
 
 **Undocumented cross-service mechanism — needs a contracts PR.** Stream C introduced `ServiceToken` (duplicated in `prediction-service` and `score-service`) which mints an HS256 JWT from `SCOREGRID_JWT_SECRET` with `sub` set to the *service name* and `roles: ["ADMIN"]`, for service-to-service REST calls. This is load-bearing and is **not** in [`docs/contracts.md`](docs/contracts.md) — which currently states `sub` is always a user ID. Do not copy the pattern into a third service until the contract is amended by PR with all three approvals. See [`docs/workstreams.md`](docs/workstreams.md#open-contract-questions).
 
@@ -82,7 +83,7 @@ Not style preferences. Breaking any of these breaks the architecture.
 7. **The unique index on `(userId, matchId)` is the duplicate-prediction rule** — not a read-then-write check, which loses under concurrency.
 8. **Never accept a write you could not validate.** If a downstream check cannot be answered because a service is down, return `503`. Do not assume the happy path.
 9. **No secrets in the repository.** `.env` is gitignored; `.env.example` holds placeholders only.
-   One deliberate exception, and it is not a secret: `application.yml` carries a dev-only default JWT secret (`dev-only-insecure-secret-do-not-deploy-anywhere-real`) so `./mvnw spring-boot:run` works in a fresh terminal and all five services agree on a locally minted token. `compose.yaml` still uses `${SCOREGRID_JWT_SECRET:?}`, so anything containerised hard-fails without a real value. Do not copy this pattern for database passwords or provider API keys.
+   One deliberate exception, and it is not a secret: `application.yml` carries a dev-only default JWT secret (`dev-only-insecure-secret-do-not-deploy-anywhere-real`) so `./mvnw spring-boot:run` works in a fresh terminal and all five business services agree on a locally minted token. `compose.yaml` still uses `${SCOREGRID_JWT_SECRET:?}`, so anything containerised hard-fails without a real value. Do not copy this pattern for database passwords or provider API keys.
 10. **Code is English. The user interface is Spanish.** The line runs at the screen, not at the file.
     - **English:** identifiers, types, comments, commit messages, branch names, log output, error codes (`PREDICTION_LOCKED`), API field names (`predictionsOpen`), test names, documentation.
     - **Spanish:** every string a participant reads — nav labels, buttons, headings, form labels, validation messages, empty/error/loading copy, dates and number formatting.
@@ -258,7 +259,7 @@ If the task spans another owner's files, say so and propose the split rather tha
 
 Do not implement them because they seem natural. If one is genuinely needed, say why and let a human decide.
 
-Equally, do not add caching, service discovery, an extra abstraction layer, or a broker abstraction that was not asked for. This design is sized for three developers and a local Compose environment.
+Equally, do not add caching, service discovery, an extra abstraction layer, or a broker abstraction that was not asked for. Eureka is the explicit exception because it is a mandatory TP requirement and is already part of the platform design. This design is sized for three developers and a local Compose environment.
 
 ---
 

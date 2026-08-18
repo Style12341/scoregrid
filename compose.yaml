@@ -6,7 +6,7 @@ name: scoregrid
 #   docker compose up -d postgres mongodb rabbitmq  infra only — the usual case
 #                                                   when running services from
 #                                                   the IDE or ./mvnw
-#   docker compose up -d --build                    whole system (9 containers)
+#   docker compose up -d --build                    whole system (10 containers)
 #   docker compose --profile observability up -d    + Prometheus, Grafana, Loki
 #
 # Storage is one Postgres and one MongoDB, each holding one database per
@@ -29,6 +29,7 @@ x-service-defaults: &service-defaults
     SPRING_PROFILES_ACTIVE: docker
     SCOREGRID_JWT_SECRET: ${SCOREGRID_JWT_SECRET:?set SCOREGRID_JWT_SECRET in .env}
     SCOREGRID_JWT_ISSUER: ${SCOREGRID_JWT_ISSUER:-scoregrid-auth}
+    EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
     MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
 
 x-healthcheck-defaults: &healthcheck-defaults
@@ -131,11 +132,23 @@ services:
 
   # ══ Services ═══════════════════════════════════════════════════════════════
 
+  eureka-server:
+    build: ./services/eureka-server
+    container_name: sg-eureka-server
+    restart: unless-stopped
+    networks: [scoregrid]
+    environment:
+      TZ: UTC
+      SPRING_PROFILES_ACTIVE: docker
+    ports: ["8761:8761"]
+    healthcheck:
+      <<: *healthcheck-defaults
+      test: ["CMD", "wget", "-qO-", "http://localhost:8761/actuator/health/readiness"]
+
   auth-service:
     <<: *service-defaults
     build: ./services/auth-service
     container_name: sg-auth-service
-    ports: ["8081:8081"]
     environment:
       <<: *service-env
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_AUTH_DB:-scoregrid_auth}
@@ -143,6 +156,7 @@ services:
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_AUTH_PASSWORD:?set POSTGRES_AUTH_PASSWORD in .env}
       SCOREGRID_JWT_TTL: ${SCOREGRID_JWT_TTL:-PT24H}
     depends_on:
+      eureka-server: {condition: service_healthy}
       postgres: {condition: service_healthy}
     healthcheck:
       <<: *healthcheck-defaults
@@ -152,7 +166,6 @@ services:
     <<: *service-defaults
     build: ./services/tournament-service
     container_name: sg-tournament-service
-    ports: ["8082:8082"]
     environment:
       <<: *service-env
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_TOURNAMENT_DB:-scoregrid_tournament}
@@ -165,6 +178,7 @@ services:
       SCOREGRID_RESULTS_PROVIDER_BASE_URL: ${RESULTS_PROVIDER_BASE_URL:-}
       SCOREGRID_RESULTS_PROVIDER_API_KEY: ${RESULTS_PROVIDER_API_KEY:-}
     depends_on:
+      eureka-server: {condition: service_healthy}
       postgres: {condition: service_healthy}
       rabbitmq: {condition: service_healthy}
     healthcheck:
@@ -175,7 +189,6 @@ services:
     <<: *service-defaults
     build: ./services/prediction-service
     container_name: sg-prediction-service
-    ports: ["8083:8083"]
     environment:
       <<: *service-env
       # authSource is the service's own database, not admin — the user was
@@ -184,8 +197,8 @@ services:
       SPRING_RABBITMQ_HOST: rabbitmq
       SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:-scoregrid}
       SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-scoregrid}
-      SCOREGRID_CLIENTS_TOURNAMENT_BASE_URL: http://tournament-service:8082
     depends_on:
+      eureka-server: {condition: service_healthy}
       mongodb: {condition: service_healthy}
       rabbitmq: {condition: service_healthy}
     healthcheck:
@@ -196,16 +209,14 @@ services:
     <<: *service-defaults
     build: ./services/score-service
     container_name: sg-score-service
-    ports: ["8084:8084"]
     environment:
       <<: *service-env
       SPRING_MONGODB_URI: mongodb://${MONGO_SCORE_USER:-score_service}:${MONGO_SCORE_PASSWORD:?set MONGO_SCORE_PASSWORD in .env}@mongodb:27017/${MONGO_SCORE_DB:-scoregrid_score}?authSource=${MONGO_SCORE_DB:-scoregrid_score}
       SPRING_RABBITMQ_HOST: rabbitmq
       SPRING_RABBITMQ_USERNAME: ${RABBITMQ_USER:-scoregrid}
       SPRING_RABBITMQ_PASSWORD: ${RABBITMQ_PASSWORD:-scoregrid}
-      SCOREGRID_CLIENTS_PREDICTION_BASE_URL: http://prediction-service:8083
-      SCOREGRID_CLIENTS_AUTH_BASE_URL: http://auth-service:8081
     depends_on:
+      eureka-server: {condition: service_healthy}
       mongodb: {condition: service_healthy}
       rabbitmq: {condition: service_healthy}
     healthcheck:
@@ -219,12 +230,9 @@ services:
     ports: ["8080:8080"]
     environment:
       <<: *service-env
-      SCOREGRID_ROUTES_AUTH_URI: http://auth-service:8081
-      SCOREGRID_ROUTES_TOURNAMENT_URI: http://tournament-service:8082
-      SCOREGRID_ROUTES_PREDICTION_URI: http://prediction-service:8083
-      SCOREGRID_ROUTES_SCORE_URI: http://score-service:8084
       SCOREGRID_CORS_ALLOWED_ORIGINS: ${FRONTEND_ORIGIN:-http://localhost:3000},http://localhost:5173
     depends_on:
+      eureka-server: {condition: service_healthy}
       auth-service: {condition: service_healthy}
       tournament-service: {condition: service_healthy}
       prediction-service: {condition: service_healthy}

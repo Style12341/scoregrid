@@ -12,33 +12,43 @@ spring:
         webmvc:
           routes:
             - id: auth
-              uri: ${SCOREGRID_ROUTES_AUTH_URI:http://localhost:8081}
+              uri: ${SCOREGRID_ROUTES_AUTH_URI:lb://auth-service}
               predicates:
                 - Path=/api/auth/**
 
             - id: users
-              uri: ${SCOREGRID_ROUTES_AUTH_URI:http://localhost:8081}
+              uri: ${SCOREGRID_ROUTES_AUTH_URI:lb://auth-service}
               predicates:
                 - Path=/api/users/**
 
             - id: tournament
-              uri: ${SCOREGRID_ROUTES_TOURNAMENT_URI:http://localhost:8082}
+              uri: ${SCOREGRID_ROUTES_TOURNAMENT_URI:lb://tournament-service}
               predicates:
                 - Path=/api/tournaments/**,/api/teams/**,/api/groups/**,/api/phases/**,/api/matches/**
 
             - id: prediction
-              uri: ${SCOREGRID_ROUTES_PREDICTION_URI:http://localhost:8083}
+              uri: ${SCOREGRID_ROUTES_PREDICTION_URI:lb://prediction-service}
               predicates:
                 - Path=/api/predictions/**
 
             - id: score
-              uri: ${SCOREGRID_ROUTES_SCORE_URI:http://localhost:8084}
+              uri: ${SCOREGRID_ROUTES_SCORE_URI:lb://score-service}
               predicates:
                 - Path=/api/rankings/**
 
   threads:
     virtual:
       enabled: true
+
+eureka:
+  client:
+    enabled: ${EUREKA_CLIENT_ENABLED:true}
+    service-url:
+      defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE:http://localhost:8761/eureka/}
+    register-with-eureka: true
+    fetch-registry: true
+  instance:
+    prefer-ip-address: ${EUREKA_INSTANCE_PREFER_IP_ADDRESS:true}
 
 server:
   port: 8080

@@ -8,7 +8,7 @@
 | **B — Tournament Core** | **Paggi** | `tournament-service` and every tournament/admin screen |
 | **C — Predictions & Scoring** | **Werlen** | `prediction-service`, `score-service`, prediction and result screens |
 
-Three people, five backend services and one frontend. This document exists to answer one question: **what can I build right now without waiting for anybody?**
+Three people, five backend services, a Eureka registry and one frontend. This document exists to answer one question: **what can I build right now without waiting for anybody?**
 
 The split is vertical. Each stream owns backend services *and* the screens that consume them, end to end. Nobody is "the frontend person" waiting on "the backend person" — that arrangement guarantees one of you is idle half the time.
 
@@ -19,9 +19,9 @@ The split is vertical. Each stream owns backend services *and* the screens that 
 | # | Output | Status |
 |---|--------|--------|
 | 1 | Repository files: `.gitignore`, `.gitattributes`, `.editorconfig`, `.env.example` | **done** |
-| 1b | Git repository on `main`, remote set, CI building all five services + frontend on every PR | **done** |
+| 1b | Git repository on `main`, remote set, CI building Eureka, all five services + frontend on every PR | **done** |
 | 2 | All five services generated from the Initializr, Boot 4.1.0 / Java 21 | **done** |
-| 3 | `compose.yaml`: 2× Postgres, 2× Mongo, RabbitMQ, 5 services, frontend, health-gated startup | **done** |
+| 3 | `compose.yaml`: PostgreSQL, MongoDB, RabbitMQ, Eureka, 5 services, frontend, health-gated startup | **done** |
 | 4 | `shared/` package (`SecurityConfig`, `GlobalExceptionHandler`, `ApiError`, `ErrorKind`, `DomainException`, `CurrentUser`) copied into all services | **done** |
 | 5 | RabbitMQ exchange, queues, bindings and DLQs declared per [`contracts.md`](contracts.md#events--rabbitmq) | **done** |
 | 6 | Vite app with router, axios client, auth context, route guard | **done** |
@@ -31,7 +31,7 @@ The split is vertical. Each stream owns backend services *and* the screens that 
 
 Step 8 is the one that matters and the one nobody can do for you. Every hour spent agreeing contracts before splitting saves a day of integration pain in week three. After this, contracts change only by PR reviewed by all three.
 
-Verified working at scaffold time: all five services compile, the frontend builds, `docker compose config` validates both profiles.
+Verified working: all six Spring applications compile, the frontend builds, `docker compose config` validates both profiles, and the Compose stack reaches healthy with services registered in Eureka.
 
 ---
 
@@ -40,15 +40,14 @@ Verified working at scaffold time: all five services compile, the frontend build
 | Stream | Owner | State |
 |--------|-------|-------|
 | **A** — Identity, Edge & Platform | Bernard | **Done.** `auth-service` end to end (register, login, `/me`, `/api/users`, `/api/users/batch`, 81 tests). `api-gateway` with five route groups, edge JWT rejection, CORS. Screens: Login, Register, Dashboard, Tournament Ranking, Global Ranking. |
-| **B** — Tournament Core | Paggi | **Done.** `tournament-service` end to end: tournament CRUD, team catalogue, enrolment, groups, phases, matches (state machine, events, result loading), all with 229 tests. Frontend screens (tournament list, detail, admin panel) shipped in `Feat/workstream-b-completion`. Stream C stubs replaced with hexagonal implementation. Also responsible for the Testcontainers / `@WebMvcTest` / `@DataMongoTest` suite in `prediction-service` and `score-service` (only two unit tests exist from Stream C). |
-| **C** — Predictions & Scoring | Werlen | **Done** — both services implemented hexagonally end to end, three screens shipped, merged to `main` in #3. Only two unit tests; missing Testcontainers, `@WebMvcTest` and `@DataMongoTest` suite per the definition of done below. |
+| **B** — Tournament Core | Paggi | **Done.** `tournament-service` end to end: tournament CRUD, team catalogue, enrolment, groups, phases, matches (state machine, events, result loading), with the complete integration suite. Frontend screens (tournament list, detail, admin panel) shipped in `Feat/workstream-b-completion`. |
+| **C** — Predictions & Scoring | Werlen | **Done** — both services implemented hexagonally end to end, three screens shipped, and controller/persistence/integration tests are present. |
 
-Stream C could not integrate against nothing, so it wrote the minimum stubs it needed inside `auth-service` and `tournament-service`. Stream A has replaced its stub. Stream B refactored them but did not fully clean up the temporary stubs left by Stream C.
+The three streams are implemented end to end. The remaining cross-service contract item is the documented service-to-service JWT mechanism.
 
 **Outstanding, in rough dependency order:**
 
-1. **Paggi** — cleanup of remaining Stream C stubs, and the Testcontainers / `@WebMvcTest` / `@DataMongoTest` suite in `prediction-service` and `score-service` (only two unit tests exist from Stream C).
-2. **All three** — the `ServiceToken` contracts PR (see [Open contract questions](#open-contract-questions)).
+1. **All three** — the `ServiceToken` contracts PR (see [Open contract questions](#open-contract-questions)).
 
 ---
 
@@ -74,9 +73,9 @@ Backend
 - The `SecurityConfig` that the other four services consume — you define how a JWT becomes an authenticated principal with roles, and the other two copy it.
 
 Platform
-- `compose.yaml` for the whole system: one Postgres and one MongoDB (each holding one database per service, with per-service logins), RabbitMQ, five services, frontend. Health checks and `depends_on: condition: service_healthy`.
+- `compose.yaml` for the whole system: one Postgres and one MongoDB (each holding one database per service, with per-service logins), RabbitMQ, Eureka, five services, frontend. Health checks and `depends_on: condition: service_healthy`.
 - `infra/`: Prometheus scrape config, Grafana provisioning + one dashboard per service, Loki + Promtail for centralised JSON logs. All behind the `observability` Compose profile.
-- CI: build and test all five services plus the frontend on every PR.
+- CI: build and test Eureka, all five services plus the frontend on every PR.
 
 Frontend
 - App shell, routing, axios interceptor that attaches the JWT and handles `401` by redirecting to login, protected-route guard, role-based navigation.

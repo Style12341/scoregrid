@@ -85,6 +85,7 @@ class PredictionController {
     }
 
     @GetMapping("/user/{userId}/tournament/{tournamentId}")
+    @PreAuthorize("hasRole('ADMIN') or #userId == authentication.name")
     ResponseEntity<List<PredictionResponse>> getByUserAndTournament(@PathVariable String userId,
                                                                      @PathVariable String tournamentId) {
         var predictions = getPredictions.getPredictionsByUserAndTournament(userId, tournamentId);

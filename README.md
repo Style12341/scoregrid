@@ -2,9 +2,9 @@
 
 A football prediction pool ("Prode") built as a distributed system. Admins create tournaments with group stages and knockout phases; participants predict match scores; the system scores every prediction automatically and maintains per-tournament and global rankings.
 
-Five Spring Boot services, a React frontend, PostgreSQL and MongoDB, RabbitMQ, and a full local Docker Compose environment.
+Five Spring Boot business services, a Eureka registry, a React frontend, PostgreSQL and MongoDB, RabbitMQ, and a full local Docker Compose environment.
 
-> **Status:** Scaffolded, feature work not started. Verified: all five services compile (`./mvnw compile`), the frontend builds, and `docker compose config` validates both profiles. The container images have not been built yet — the first `docker compose up --build` on a machine with Docker running is still unproven. There are no entities, controllers, migrations or real screens — that is the [workstreams](docs/workstreams.md).
+> **Status:** Feature-complete baseline verified locally. The backend suites, frontend lint/build, Docker images, Compose health checks, Eureka registration and Gateway routing have been exercised. The contracts document is frozen.
 >
 > Read [`docs/PRD.md`](docs/PRD.md) and [`docs/contracts.md`](docs/contracts.md) before writing code. The contracts document is frozen.
 
@@ -29,10 +29,16 @@ ScoreGrid holds the fixture, the predictions, the scoring and the standings in o
 ```mermaid
 flowchart LR
     FE["Frontend<br/>React + Vite"] --> GW["api-gateway<br/>:8080"]
+    ER["eureka-server<br/>:8761"]
     GW --> AU["auth-service<br/>:8081"]
     GW --> TO["tournament-service<br/>:8082"]
     GW --> PR["prediction-service<br/>:8083"]
     GW --> SC["score-service<br/>:8084"]
+    AU -. "registers" .-> ER
+    TO -. "registers" .-> ER
+    PR -. "registers" .-> ER
+    SC -. "registers" .-> ER
+    GW -. "discovers" .-> ER
 
     AU --- PGA[("PostgreSQL")]
     TO --- PGT[("PostgreSQL")]
@@ -47,6 +53,7 @@ flowchart LR
 
 | Service | Responsibility | Database |
 |---------|----------------|----------|
+| `eureka-server` | Service registry and discovery | — |
 | `api-gateway` | Single entry point, routing, edge JWT validation, CORS | — |
 | `auth-service` | Users, roles, JWT issuance | PostgreSQL |
 | `tournament-service` | Tournaments, teams, groups, phases, matches, results, enrolments | PostgreSQL |
@@ -81,7 +88,7 @@ docker compose ps
 
 ### Day-to-day: databases in Docker, services from the console
 
-Most of the time you do not want five JVMs in containers. Start the infrastructure only and run the service you are working on directly — it picks up the right database, user and port from `application.yml` with no environment set up:
+Most of the time you do not want the full set of JVMs in containers. Start the infrastructure only and run the service you are working on directly — it picks up the right database, user and port from `application.yml` with no environment set up:
 
 ```bash
 docker compose up -d postgres mongodb rabbitmq
@@ -129,10 +136,11 @@ Integration tests use Testcontainers and start real PostgreSQL, MongoDB and Rabb
 
 ```
 scoregrid/
-├── .github/workflows/     CI: five services, frontend, compose validation
+├── .github/workflows/     CI: Eureka + five services, frontend, compose validation
 ├── docs/                  PRD, setup guide, frozen contracts, work split
 ├── infra/                 database provisioning + Prometheus, Grafana, Loki, Promtail
-├── services/              five independently buildable Maven projects
+├── services/              six independently buildable Maven projects
+│   ├── eureka-server/
 │   ├── api-gateway/
 │   ├── auth-service/
 │   ├── tournament-service/

@@ -45,6 +45,16 @@ server:
   port: 8083
   shutdown: graceful
 
+eureka:
+  client:
+    enabled: ${EUREKA_CLIENT_ENABLED:true}
+    service-url:
+      defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE:http://localhost:8761/eureka/}
+    register-with-eureka: true
+    fetch-registry: true
+  instance:
+    prefer-ip-address: ${EUREKA_INSTANCE_PREFER_IP_ADDRESS:true}
+
 scoregrid:
   jwt:
     secret: ${SCOREGRID_JWT_SECRET:dev-only-insecure-secret-do-not-deploy-anywhere-real}
@@ -54,7 +64,7 @@ scoregrid:
     # Used only on match-cache miss. The cache is fed by match.scheduled /
     # match.updated events — see docs/contracts.md#events--rabbitmq.
     tournament:
-      base-url: ${SCOREGRID_CLIENTS_TOURNAMENT_BASE_URL:http://localhost:8082}
+      base-url: ${SCOREGRID_CLIENTS_TOURNAMENT_BASE_URL:http://tournament-service}
 
 management:
   endpoints:

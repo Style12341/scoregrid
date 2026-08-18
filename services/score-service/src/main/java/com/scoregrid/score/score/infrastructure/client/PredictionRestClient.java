@@ -10,6 +10,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.client.circuitbreaker.CircuitBreaker;
 import org.springframework.cloud.client.circuitbreaker.CircuitBreakerFactory;
+import org.springframework.cloud.client.loadbalancer.LoadBalanced;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -31,9 +32,10 @@ class PredictionRestClient implements PredictionClientPort {
 
     PredictionRestClient(@Value("${scoregrid.clients.prediction.base-url}") String baseUrl,
                          ServiceTokenInterceptor tokenInterceptor,
+                         @LoadBalanced RestClient.Builder restClientBuilder,
                          CircuitBreakerFactory<?, ?> circuitBreakerFactory,
                          Retry predictionClientRetry) {
-        this.restClient = RestClient.builder()
+        this.restClient = restClientBuilder
                 .baseUrl(baseUrl)
                 .requestInterceptor(tokenInterceptor)
                 .build();

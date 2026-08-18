@@ -45,6 +45,16 @@ server:
   port: 8084
   shutdown: graceful
 
+eureka:
+  client:
+    enabled: ${EUREKA_CLIENT_ENABLED:true}
+    service-url:
+      defaultZone: ${EUREKA_CLIENT_SERVICEURL_DEFAULTZONE:http://localhost:8761/eureka/}
+    register-with-eureka: true
+    fetch-registry: true
+  instance:
+    prefer-ip-address: ${EUREKA_INSTANCE_PREFER_IP_ADDRESS:true}
+
 scoregrid:
   jwt:
     secret: ${SCOREGRID_JWT_SECRET:dev-only-insecure-secret-do-not-deploy-anywhere-real}
@@ -52,9 +62,9 @@ scoregrid:
 
   clients:
     prediction:
-      base-url: ${SCOREGRID_CLIENTS_PREDICTION_BASE_URL:http://localhost:8083}
+      base-url: ${SCOREGRID_CLIENTS_PREDICTION_BASE_URL:http://prediction-service}
     auth:
-      base-url: ${SCOREGRID_CLIENTS_AUTH_BASE_URL:http://localhost:8081}
+      base-url: ${SCOREGRID_CLIENTS_AUTH_BASE_URL:http://auth-service}
 
   # Scoring rule v1. Exact implies outcome — award 3, not 4.
   # Contract and test table: docs/contracts.md#scoring-rule-v1

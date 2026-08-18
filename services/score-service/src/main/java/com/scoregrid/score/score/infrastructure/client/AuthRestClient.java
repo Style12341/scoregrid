@@ -5,6 +5,7 @@ import com.scoregrid.score.shared.security.ServiceTokenInterceptor;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.cloud.client.loadbalancer.LoadBalanced;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -22,8 +23,9 @@ class AuthRestClient implements AuthClientPort {
     private final RestClient restClient;
 
     AuthRestClient(@Value("${scoregrid.clients.auth.base-url}") String baseUrl,
-                   ServiceTokenInterceptor tokenInterceptor) {
-        this.restClient = RestClient.builder()
+                   ServiceTokenInterceptor tokenInterceptor,
+                   @LoadBalanced RestClient.Builder restClientBuilder) {
+        this.restClient = restClientBuilder
                 .baseUrl(baseUrl)
                 .requestInterceptor(tokenInterceptor)
                 .build();

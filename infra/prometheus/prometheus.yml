@@ -16,6 +16,8 @@ scrape_configs:
         labels: {service: prediction-service}
       - targets: ["score-service:8084"]
         labels: {service: score-service}
+      - targets: ["eureka-server:8761"]
+        labels: {service: eureka-server}
 
   - job_name: prometheus
     static_configs:

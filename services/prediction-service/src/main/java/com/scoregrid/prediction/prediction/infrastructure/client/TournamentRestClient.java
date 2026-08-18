@@ -11,6 +11,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.client.circuitbreaker.CircuitBreaker;
 import org.springframework.cloud.client.circuitbreaker.CircuitBreakerFactory;
+import org.springframework.cloud.client.loadbalancer.LoadBalanced;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -35,9 +36,10 @@ class TournamentRestClient implements TournamentClientPort {
 
     TournamentRestClient(@Value("${scoregrid.clients.tournament.base-url}") String baseUrl,
                          ServiceTokenInterceptor tokenInterceptor,
+                         @LoadBalanced RestClient.Builder restClientBuilder,
                          CircuitBreakerFactory<?, ?> circuitBreakerFactory,
                          Retry tournamentClientRetry) {
-        this.restClient = RestClient.builder()
+        this.restClient = restClientBuilder
                 .baseUrl(baseUrl)
                 .requestInterceptor(tokenInterceptor)
                 .build();
@@ -115,6 +117,9 @@ class TournamentRestClient implements TournamentClientPort {
         try {
             return circuitBreaker.run(withRetry, throwable -> {
                 log.error("Circuit open for tournament-client, resource: {}", resourceId, throwable);
+                if (throwable instanceof DomainException domainException) {
+                    throw domainException;
+                }
                 throw new DomainException(ErrorKind.DOWNSTREAM_UNAVAILABLE, "DOWNSTREAM_UNAVAILABLE",
                         "Tournament service is currently unavailable. Please try again later.");
             });

@@ -158,4 +158,35 @@ class PredictionControllerTest {
                         .with(jwtWithRole("PLAYER")))
                 .andExpect(status().isNotFound());
     }
+
+    @Test
+    @DisplayName("GET /api/predictions/user/{userId}/tournament/{id} allows the current user")
+    void userPredictionsAllowCurrentUser() throws Exception {
+        given(getPredictions.getPredictionsByUserAndTournament("42", "t1"))
+                .willReturn(List.of(samplePrediction()));
+
+        mockMvc.perform(get("/api/predictions/user/42/tournament/t1")
+                        .with(jwtWithRole("PLAYER")))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].id").value("p1"));
+    }
+
+    @Test
+    @DisplayName("GET /api/predictions/user/{userId}/tournament/{id} rejects another player")
+    void userPredictionsRejectAnotherPlayer() throws Exception {
+        mockMvc.perform(get("/api/predictions/user/43/tournament/t1")
+                        .with(jwtWithRole("PLAYER")))
+                .andExpect(status().isForbidden());
+    }
+
+    @Test
+    @DisplayName("GET /api/predictions/user/{userId}/tournament/{id} allows ADMIN service access")
+    void userPredictionsAllowAdmin() throws Exception {
+        given(getPredictions.getPredictionsByUserAndTournament("43", "t1"))
+                .willReturn(List.of(samplePrediction()));
+
+        mockMvc.perform(get("/api/predictions/user/43/tournament/t1")
+                        .with(jwtWithRole("ADMIN")))
+                .andExpect(status().isOk());
+    }
 }
