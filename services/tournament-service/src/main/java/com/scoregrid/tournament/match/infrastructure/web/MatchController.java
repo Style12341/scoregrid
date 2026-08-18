@@ -50,11 +50,12 @@ class MatchController {
     @PreAuthorize("hasRole('ADMIN')")
     ResponseEntity<MatchResponse> create(@PathVariable Long id,
                                           @Valid @RequestBody CreateMatchRequest request) {
-        Long groupId = request.groupId() != null ? Long.valueOf(request.groupId()) : null;
-        Long phaseId = request.phaseId() != null ? Long.valueOf(request.phaseId()) : null;
+        Long groupId = parseId(request.groupId(), "groupId");
+        Long phaseId = parseId(request.phaseId(), "phaseId");
 
         var cmd = new CreateMatch.Command(id, groupId, phaseId,
-                Long.valueOf(request.homeTeamId()), Long.valueOf(request.awayTeamId()),
+                parseId(request.homeTeamId(), "homeTeamId"),
+                parseId(request.awayTeamId(), "awayTeamId"),
                 request.startTime());
         var match = createMatch.execute(cmd);
         var response = MatchResponse.from(match);
@@ -88,11 +89,12 @@ class MatchController {
     @PreAuthorize("hasRole('ADMIN')")
     ResponseEntity<MatchResponse> update(@PathVariable Long id,
                                           @Valid @RequestBody UpdateMatchRequest request) {
-        Long groupId = request.groupId() != null ? Long.valueOf(request.groupId()) : null;
-        Long phaseId = request.phaseId() != null ? Long.valueOf(request.phaseId()) : null;
+        Long groupId = parseId(request.groupId(), "groupId");
+        Long phaseId = parseId(request.phaseId(), "phaseId");
 
         var cmd = new UpdateMatch.Command(id, groupId, phaseId,
-                Long.valueOf(request.homeTeamId()), Long.valueOf(request.awayTeamId()),
+                parseId(request.homeTeamId(), "homeTeamId"),
+                parseId(request.awayTeamId(), "awayTeamId"),
                 request.startTime(), request.status());
         var match = updateMatch.execute(cmd);
         return ResponseEntity.ok(MatchResponse.from(match));
@@ -105,5 +107,17 @@ class MatchController {
         var cmd = new SetMatchResult.Command(id, request.homeScore(), request.awayScore());
         setMatchResult.execute(cmd);
         return ResponseEntity.noContent().build();
+    }
+
+    private static Long parseId(String value, String field) {
+        if (value == null) {
+            return null;
+        }
+        try {
+            return Long.valueOf(value);
+        } catch (NumberFormatException e) {
+            throw new DomainException(ErrorKind.VALIDATION, "VALIDATION_FAILED",
+                    field + " must be a numeric ID");
+        }
     }
 }

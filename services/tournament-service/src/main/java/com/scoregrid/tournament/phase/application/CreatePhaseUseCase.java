@@ -6,6 +6,7 @@ import com.scoregrid.tournament.phase.domain.port.out.PhaseRepository;
 import com.scoregrid.tournament.shared.error.DomainException;
 import com.scoregrid.tournament.shared.error.ErrorKind;
 import com.scoregrid.tournament.tournament.domain.port.out.TournamentRepository;
+import com.scoregrid.tournament.tournament.domain.model.TournamentStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,9 +25,13 @@ public class CreatePhaseUseCase implements CreatePhase {
 
     @Override
     public Phase execute(Command command) {
-        if (!tournamentRepository.existsById(command.tournamentId())) {
-            throw new DomainException(ErrorKind.NOT_FOUND, "NOT_FOUND",
-                    "Tournament not found: " + command.tournamentId());
+        var tournament = tournamentRepository.findById(command.tournamentId())
+                .orElseThrow(() -> new DomainException(ErrorKind.NOT_FOUND, "NOT_FOUND",
+                        "Tournament not found: " + command.tournamentId()));
+        if (tournament.getStatus() != TournamentStatus.DRAFT
+                && tournament.getStatus() != TournamentStatus.ACTIVE) {
+            throw new DomainException(ErrorKind.CONFLICT, "TOURNAMENT_NOT_ACTIVE",
+                    "Tournament is not configurable in state " + tournament.getStatus());
         }
         var phase = Phase.create(command.tournamentId(), command.type(),
                 command.name(), command.displayOrder());

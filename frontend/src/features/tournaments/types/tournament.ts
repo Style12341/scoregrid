@@ -19,8 +19,8 @@ export interface Tournament {
   name: string;
   description: string;
   status: TournamentStatus;
-  startDate: string;
-  endDate: string;
+  startDate: string | null;
+  endDate: string | null;
   createdBy: string;
   createdAt: string;
   updatedAt: string;
@@ -94,7 +94,7 @@ export interface CreatePhaseInput {
 export interface TeamRef {
   id: string;
   name: string;
-  shortName: string;
+  shortName: string | null;
 }
 
 export interface Match {
@@ -111,22 +111,22 @@ export interface Match {
   predictionsOpen: boolean;
 }
 
-export interface CreateMatchInput {
-  groupId?: string;
-  phaseId?: string;
+type MatchLocation =
+  | { groupId: string; phaseId?: never }
+  | { phaseId: string; groupId?: never };
+
+export type CreateMatchInput = MatchLocation & {
   homeTeamId: string;
   awayTeamId: string;
   startTime: string;
-}
+};
 
-export interface UpdateMatchInput {
-  groupId?: string;
-  phaseId?: string;
-  homeTeamId?: string;
-  awayTeamId?: string;
-  startTime?: string;
-  status?: MatchStatus;
-}
+export type UpdateMatchInput = MatchLocation & {
+  homeTeamId: string;
+  awayTeamId: string;
+  startTime: string;
+  status: MatchStatus;
+};
 
 export interface SetMatchResultInput {
   homeScore: number;
@@ -138,9 +138,9 @@ export interface SetMatchResultInput {
 export interface Team {
   id: string;
   name: string;
-  shortName: string;
-  country: string;
-  logoUrl: string;
+  shortName: string | null;
+  country: string | null;
+  logoUrl: string | null;
 }
 
 export interface CreateTeamInput {
@@ -149,6 +149,8 @@ export interface CreateTeamInput {
   country: string;
   logoUrl?: string;
 }
+
+export type UpdateTeamInput = CreateTeamInput;
 
 // ── Enrolment ─────────────────────────────────────────────────────────────
 

@@ -4,6 +4,7 @@ import com.scoregrid.tournament.match.domain.model.Match;
 import com.scoregrid.tournament.match.domain.model.MatchStatus;
 
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.Map;
 
 public record MatchResponse(
@@ -40,16 +41,22 @@ public record MatchResponse(
                 match.getTournamentId().toString(),
                 match.getGroupId() != null ? match.getGroupId().toString() : null,
                 match.getPhaseId() != null ? match.getPhaseId().toString() : null,
-                Map.of("id", match.getHomeTeam().id().toString(),
-                        "name", match.getHomeTeam().name(),
-                        "shortName", match.getHomeTeam().shortName()),
-                Map.of("id", match.getAwayTeam().id().toString(),
-                        "name", match.getAwayTeam().name(),
-                        "shortName", match.getAwayTeam().shortName()),
+                teamReference(match.getHomeTeam().id(), match.getHomeTeam().name(),
+                        match.getHomeTeam().shortName()),
+                teamReference(match.getAwayTeam().id(), match.getAwayTeam().name(),
+                        match.getAwayTeam().shortName()),
                 match.getStartTime().toString(),
                 displayStatus.name(),
                 match.getHomeScore(),
                 match.getAwayScore(),
                 predictionsOpen);
+    }
+
+    private static Map<String, String> teamReference(Long id, String name, String shortName) {
+        var reference = new LinkedHashMap<String, String>();
+        reference.put("id", id.toString());
+        reference.put("name", name);
+        reference.put("shortName", shortName);
+        return reference;
     }
 }

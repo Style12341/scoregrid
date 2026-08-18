@@ -5,7 +5,11 @@ import { usePageHeader } from "@/components/layout/page-header";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { MatchStatusBadge, TournamentStatusBadge } from "@/components/common/StatusBadge";
+import {
+  MatchStatusBadge,
+  TournamentStatusBadge,
+  type MatchStatus,
+} from "@/components/common/StatusBadge";
 import { FormField } from "@/components/common/FormField";
 import { LoadingState, EmptyState, ErrorState } from "@/components/common/states";
 import {
@@ -23,7 +27,6 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { Separator } from "@/components/ui/separator";
-import { toApiError } from "@/lib/api";
 import {
   getTournament,
   listGroups,
@@ -34,6 +37,7 @@ import {
   createPhase,
   listMatches,
   createMatch,
+  updateMatch,
   loadResult,
   listTeams,
   assignTeamsToTournament,
@@ -46,9 +50,11 @@ import type {
   Match,
   Team,
   CreateMatchInput,
+  UpdateMatchInput,
   PhaseType,
   TournamentStatus,
 } from "@/features/tournaments/types/tournament";
+import { apiErrorMessage } from "@/features/tournaments/errors";
 
 // ── Helpers ───────────────────────────────────────────────────────────────
 
@@ -61,14 +67,30 @@ function formatDate(iso: string): string {
   });
 }
 
+function isConfigurable(status: string): boolean {
+  return status === "DRAFT" || status === "ACTIVE";
+}
+
+function teamLabel(team: Team): string {
+  return team.shortName || team.name;
+}
+
+function toDateTimeLocal(iso: string): string {
+  const date = new Date(iso);
+  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
+  return local.toISOString().slice(0, 16);
+}
+
 // ── Team Assignment Section ───────────────────────────────────────────────
 
 function TeamAssignmentSection({
   tournamentId,
   tournamentStatus,
+  onChanged,
 }: {
   tournamentId: string;
   tournamentStatus: string;
+  onChanged?: () => void;
 }) {
   const [allTeams, setAllTeams] = useState<Team[]>([]);
   const [assignedTeams, setAssignedTeams] = useState<Team[]>([]);
@@ -79,6 +101,7 @@ function TeamAssignmentSection({
 
   const load = useCallback(() => {
     setLoading(true);
+    setError(null);
     Promise.all([listTeams(), getTournamentTeams(tournamentId)])
       .then(([all, assigned]) => {
         setAllTeams(all);
@@ -106,15 +129,16 @@ function TeamAssignmentSection({
     try {
       await assignTeamsToTournament(tournamentId, selectedIds);
       load();
+      onChanged?.();
     } catch (e) {
-      const apiErr = toApiError(e);
-      setError(apiErr?.message ?? "No se pudieron asignar los equipos.");
+      setError(apiErrorMessage(e, "No se pudieron asignar los equipos."));
     } finally {
       setSubmitting(false);
     }
   }
 
   if (loading) return <LoadingState label="Cargando equipos…" />;
+  if (error) return <ErrorState title="Error" description={error} onRetry={load} />;
 
   const unassigned = allTeams.filter((t) => !assignedTeams.find((a) => a.id === t.id));
 
@@ -131,7 +155,7 @@ function TeamAssignmentSection({
                 key={t.id}
                 className="rounded-full border border-border bg-muted px-3 py-1 text-sm font-medium"
               >
-                {t.shortName}
+                {teamLabel(t)}
               </span>
             ))}
           </div>
@@ -143,7 +167,7 @@ function TeamAssignmentSection({
           </p>
         )}
 
-        {tournamentStatus === "ACTIVE" && unassigned.length > 0 && (
+        {isConfigurable(tournamentStatus) && unassigned.length > 0 && (
           <>
             <Separator />
             <div>
@@ -162,7 +186,7 @@ function TeamAssignmentSection({
                         : "border-border bg-muted hover:border-primary/50"
                     }`}
                   >
-                    {t.shortName}
+                    {teamLabel(t)}
                   </button>
                 ))}
               </div>
@@ -190,10 +214,12 @@ function GroupsSection({
   tournamentId,
   tournamentStatus,
   tournamentTeams,
+  onChanged,
 }: {
   tournamentId: string;
   tournamentStatus: string;
   tournamentTeams: Team[];
+  onChanged?: () => void;
 }) {
   const [groups, setGroups] = useState<Group[]>([]);
   const [teamsByGroup, setTeamsByGroup] = useState<Record<string, Team[]>>({});
@@ -212,15 +238,12 @@ function GroupsSection({
             getGroupTeams(group.id)
               .then((teams) => {
                 teamMap[group.id] = teams;
-              })
-              .catch(() => {
-                teamMap[group.id] = [];
               }),
           ),
         );
         setTeamsByGroup(teamMap);
       })
-      .catch(() => setError("No se pudieron cargar los grupos."))
+      .catch((error) => setError(apiErrorMessage(error, "No se pudieron cargar los grupos.")))
       .finally(() => setLoading(false));
   }, [tournamentId]);
 
@@ -233,8 +256,14 @@ function GroupsSection({
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle>Grupos</CardTitle>
-          {tournamentStatus === "ACTIVE" && (
-            <CreateGroupDialog tournamentId={tournamentId} onSaved={load} />
+          {isConfigurable(tournamentStatus) && (
+            <CreateGroupDialog
+              tournamentId={tournamentId}
+              onSaved={() => {
+                load();
+                onChanged?.();
+              }}
+            />
           )}
         </div>
       </CardHeader>
@@ -260,12 +289,15 @@ function GroupsSection({
               <div key={group.id} className="rounded-lg border border-border p-4">
                 <div className="mb-3 flex items-center justify-between">
                   <h4 className="text-sm font-bold">{group.name}</h4>
-                  {tournamentStatus === "ACTIVE" && availableTeams.length > 0 && (
+                  {isConfigurable(tournamentStatus) && availableTeams.length > 0 && (
                     <AssignTeamsDialog
                       groupId={group.id}
                       groupName={group.name}
                       availableTeams={availableTeams}
-                      onSaved={load}
+                      onSaved={() => {
+                        load();
+                        onChanged?.();
+                      }}
                     />
                   )}
                 </div>
@@ -281,7 +313,7 @@ function GroupsSection({
                         key={team.id}
                         className="rounded-full border border-border bg-muted px-3 py-1 text-sm font-medium"
                       >
-                        {team.shortName}
+                        {teamLabel(team)}
                       </span>
                     ))}
                   </div>
@@ -316,13 +348,12 @@ function CreateGroupDialog({
 
     setSubmitting(true);
     try {
-      await createGroup(tournamentId, { name: name.trim() });
+      await createGroup(tournamentId, { name: name.trim(), displayOrder: 0 });
       setOpen(false);
       setName("");
       onSaved();
     } catch (e) {
-      const apiErr = toApiError(e);
-      setError(apiErr?.message ?? "No se pudo crear el grupo.");
+      setError(apiErrorMessage(e, "No se pudo crear el grupo."));
     } finally {
       setSubmitting(false);
     }
@@ -401,8 +432,7 @@ function AssignTeamsDialog({
       setSelectedIds([]);
       onSaved();
     } catch (e) {
-      const apiErr = toApiError(e);
-      setError(apiErr?.message ?? "No se pudieron asignar los equipos.");
+      setError(apiErrorMessage(e, "No se pudieron asignar los equipos."));
     } finally {
       setSubmitting(false);
     }
@@ -466,9 +496,11 @@ const PHASE_TYPES: { value: PhaseType; label: string }[] = [
 function PhasesSection({
   tournamentId,
   tournamentStatus,
+  onChanged,
 }: {
   tournamentId: string;
   tournamentStatus: string;
+  onChanged?: () => void;
 }) {
   const [phases, setPhases] = useState<Phase[]>([]);
   const [loading, setLoading] = useState(true);
@@ -479,7 +511,7 @@ function PhasesSection({
     setError(null);
     listPhases(tournamentId)
       .then(setPhases)
-      .catch(() => setError("No se pudieron cargar las fases."))
+      .catch((error) => setError(apiErrorMessage(error, "No se pudieron cargar las fases.")))
       .finally(() => setLoading(false));
   }, [tournamentId]);
 
@@ -501,14 +533,15 @@ function PhasesSection({
       await createPhase(tournamentId, {
         type: phaseType,
         name: phaseName.trim() || undefined,
+        displayOrder: 0,
       });
       setOpen(false);
       setPhaseType("FINAL");
       setPhaseName("");
       load();
+      onChanged?.();
     } catch (e) {
-      const apiErr = toApiError(e);
-      setFormError(apiErr?.message ?? "No se pudo crear la fase.");
+      setFormError(apiErrorMessage(e, "No se pudo crear la fase."));
     } finally {
       setSubmitting(false);
     }
@@ -519,7 +552,7 @@ function PhasesSection({
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle>Fases</CardTitle>
-          {tournamentStatus === "ACTIVE" && (
+          {isConfigurable(tournamentStatus) && (
             <Dialog open={open} onOpenChange={setOpen}>
               <DialogTrigger asChild>
                 <Button size="sm" variant="secondary">
@@ -620,12 +653,14 @@ function MatchesSection({
   groups,
   phases,
   tournamentTeams,
+  onChanged,
 }: {
   tournamentId: string;
   tournamentStatus: string;
   groups: Group[];
   phases: Phase[];
   tournamentTeams: Team[];
+  onChanged?: () => void;
 }) {
   const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
@@ -636,7 +671,7 @@ function MatchesSection({
     setError(null);
     listMatches(tournamentId)
       .then(setMatches)
-      .catch(() => setError("No se pudieron cargar los partidos."))
+      .catch((error) => setError(apiErrorMessage(error, "No se pudieron cargar los partidos.")))
       .finally(() => setLoading(false));
   }, [tournamentId]);
 
@@ -666,15 +701,20 @@ function MatchesSection({
       setCreateError("Los equipos deben ser distintos.");
       return;
     }
+    if ((matchGroupId && matchPhaseId) || (!matchGroupId && !matchPhaseId)) {
+      setCreateError("Elegí exactamente un grupo o una fase.");
+      return;
+    }
 
+    const location = matchGroupId
+      ? { groupId: matchGroupId }
+      : { phaseId: matchPhaseId };
     const input: CreateMatchInput = {
+      ...location,
       homeTeamId,
       awayTeamId,
       startTime: new Date(startTime).toISOString(),
     };
-
-    if (matchGroupId) input.groupId = matchGroupId;
-    if (matchPhaseId) input.phaseId = matchPhaseId;
 
     setSubmittingCreate(true);
     try {
@@ -686,9 +726,9 @@ function MatchesSection({
       setAwayTeamId("");
       setStartTime("");
       load();
+      onChanged?.();
     } catch (e) {
-      const apiErr = toApiError(e);
-      setCreateError(apiErr?.message ?? "No se pudo crear el partido.");
+      setCreateError(apiErrorMessage(e, "No se pudo crear el partido."));
     } finally {
       setSubmittingCreate(false);
     }
@@ -699,7 +739,7 @@ function MatchesSection({
       <CardHeader>
         <div className="flex items-center justify-between">
           <CardTitle>Partidos</CardTitle>
-          {tournamentStatus === "ACTIVE" && (
+          {isConfigurable(tournamentStatus) && (
             <Dialog open={createOpen} onOpenChange={setCreateOpen}>
               <DialogTrigger asChild>
                 <Button size="sm" variant="secondary">
@@ -853,18 +893,33 @@ function MatchesSection({
                 </div>
 
                 <div className="mb-2 text-center text-base font-bold">
-                  {match.homeTeam.shortName}{" "}
+                  {match.homeTeam.shortName || match.homeTeam.name}{" "}
                   <span className="text-muted-foreground">
                     {match.homeScore !== null && match.awayScore !== null
                       ? `${match.homeScore} – ${match.awayScore}`
                       : "vs"}
                   </span>{" "}
-                  {match.awayTeam.shortName}
+                  {match.awayTeam.shortName || match.awayTeam.name}
                 </div>
 
                 <p className="text-xs text-muted-foreground">
                   {match.homeTeam.name} vs {match.awayTeam.name}
                 </p>
+
+                {match.status !== "CANCELLED" && match.status !== "FINISHED" && (
+                  <div className="mt-3 flex flex-wrap gap-2">
+                    <EditMatchDialog
+                      match={match}
+                      groups={groups}
+                      phases={phases}
+                      tournamentTeams={tournamentTeams}
+                      onSaved={() => {
+                        load();
+                        onChanged?.();
+                      }}
+                    />
+                  </div>
+                )}
 
                 {(match.status === "SCHEDULED" ||
                   match.status === "IN_PROGRESS" ||
@@ -879,6 +934,201 @@ function MatchesSection({
         )}
       </CardContent>
     </Card>
+  );
+}
+
+function EditMatchDialog({
+  match,
+  groups,
+  phases,
+  tournamentTeams,
+  onSaved,
+}: {
+  match: Match;
+  groups: Group[];
+  phases: Phase[];
+  tournamentTeams: Team[];
+  onSaved: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const [groupId, setGroupId] = useState(match.groupId ?? "");
+  const [phaseId, setPhaseId] = useState(match.phaseId ?? "");
+  const [homeTeamId, setHomeTeamId] = useState(match.homeTeam.id);
+  const [awayTeamId, setAwayTeamId] = useState(match.awayTeam.id);
+  const [startTime, setStartTime] = useState(toDateTimeLocal(match.startTime));
+  const [status, setStatus] = useState<MatchStatus>(match.status);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    setGroupId(match.groupId ?? "");
+    setPhaseId(match.phaseId ?? "");
+    setHomeTeamId(match.homeTeam.id);
+    setAwayTeamId(match.awayTeam.id);
+    setStartTime(toDateTimeLocal(match.startTime));
+    setStatus(match.status);
+    setError(null);
+  }, [open, match]);
+
+  async function handleSubmit(event: FormEvent) {
+    event.preventDefault();
+    setError(null);
+    if (!homeTeamId || !awayTeamId || !startTime) {
+      setError("Completá todos los campos requeridos.");
+      return;
+    }
+    if (homeTeamId === awayTeamId) {
+      setError("Los equipos deben ser distintos.");
+      return;
+    }
+    if ((groupId && phaseId) || (!groupId && !phaseId)) {
+      setError("Elegí exactamente un grupo o una fase.");
+      return;
+    }
+
+    const location = groupId ? { groupId } : { phaseId };
+    const input: UpdateMatchInput = {
+      ...location,
+      homeTeamId,
+      awayTeamId,
+      startTime: new Date(startTime).toISOString(),
+      status,
+    };
+
+    setSubmitting(true);
+    try {
+      await updateMatch(match.id, input);
+      setOpen(false);
+      onSaved();
+    } catch (requestError) {
+      setError(apiErrorMessage(requestError, "No se pudo actualizar el partido."));
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <Dialog open={open} onOpenChange={setOpen}>
+      <DialogTrigger asChild>
+        <Button size="xs" variant="outline">Editar partido</Button>
+      </DialogTrigger>
+      <DialogContent>
+        <DialogHeader>
+          <DialogTitle>Editar partido</DialogTitle>
+        </DialogHeader>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
+          <div className="grid grid-cols-2 gap-4">
+            <FormField label="Grupo">
+              {() => (
+                <Select
+                  value={groupId}
+                  onValueChange={(value) => {
+                    setGroupId(value);
+                    setPhaseId("");
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Seleccionar grupo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {groups.map((group) => (
+                      <SelectItem key={group.id} value={group.id}>{group.name}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </FormField>
+            <FormField label="Fase">
+              {() => (
+                <Select
+                  value={phaseId}
+                  onValueChange={(value) => {
+                    setPhaseId(value);
+                    setGroupId("");
+                  }}
+                >
+                  <SelectTrigger className="w-full">
+                    <SelectValue placeholder="Seleccionar fase" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {phases.map((phase) => (
+                      <SelectItem key={phase.id} value={phase.id}>
+                        {phase.name ?? phase.type}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
+            </FormField>
+          </div>
+
+          <FormField label="Equipo local" required>
+            {() => (
+              <Select value={homeTeamId} onValueChange={setHomeTeamId}>
+                <SelectTrigger className="w-full"><SelectValue placeholder="Seleccionar equipo" /></SelectTrigger>
+                <SelectContent>
+                  {tournamentTeams.map((team) => (
+                    <SelectItem key={team.id} value={team.id}>
+                      {teamLabel(team)} — {team.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </FormField>
+
+          <FormField label="Equipo visitante" required>
+            {() => (
+              <Select value={awayTeamId} onValueChange={setAwayTeamId}>
+                <SelectTrigger className="w-full"><SelectValue placeholder="Seleccionar equipo" /></SelectTrigger>
+                <SelectContent>
+                  {tournamentTeams.map((team) => (
+                    <SelectItem key={team.id} value={team.id}>
+                      {teamLabel(team)} — {team.name}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+          </FormField>
+
+          <FormField label="Fecha y hora" required>
+            {(field) => (
+              <Input
+                {...field}
+                type="datetime-local"
+                value={startTime}
+                onChange={(event) => setStartTime(event.target.value)}
+              />
+            )}
+          </FormField>
+
+          <FormField label="Estado" required>
+            {() => (
+              <Select value={status} onValueChange={(value) => setStatus(value as MatchStatus)}>
+                <SelectTrigger className="w-full"><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="SCHEDULED">Programado</SelectItem>
+                  <SelectItem value="IN_PROGRESS">En juego</SelectItem>
+                  <SelectItem value="POSTPONED">Pospuesto</SelectItem>
+                  <SelectItem value="CANCELLED">Cancelado</SelectItem>
+                </SelectContent>
+              </Select>
+            )}
+          </FormField>
+
+          {error && (
+            <p className="rounded-md bg-destructive/10 px-3.5 py-3 text-sm font-bold text-destructive">
+              {error}
+            </p>
+          )}
+          <Button type="submit" disabled={submitting}>
+            {submitting ? "Guardando…" : "Guardar cambios"}
+          </Button>
+        </form>
+      </DialogContent>
+    </Dialog>
   );
 }
 
@@ -918,8 +1168,7 @@ function LoadResultInline({
       setOpen(false);
       onSaved();
     } catch (e) {
-      const apiErr = toApiError(e);
-      setError(apiErr?.message ?? "No se pudo cargar el resultado.");
+      setError(apiErrorMessage(e, "No se pudo cargar el resultado."));
     } finally {
       setSubmitting(false);
     }
@@ -938,7 +1187,7 @@ function LoadResultInline({
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
           <p className="text-sm text-muted-foreground">
-            {match.homeTeam.shortName} vs {match.awayTeam.shortName}
+             {match.homeTeam.shortName || match.homeTeam.name} vs {match.awayTeam.shortName || match.awayTeam.name}
           </p>
           <div className="grid grid-cols-2 gap-4">
             <FormField label="Goles local" required>
@@ -1040,17 +1289,20 @@ export function AdminTournamentManagePage() {
       <TeamAssignmentSection
         tournamentId={tournament.id}
         tournamentStatus={tournament.status}
+        onChanged={loadMeta}
       />
 
       <GroupsSection
         tournamentId={tournament.id}
         tournamentStatus={tournament.status}
         tournamentTeams={tournamentTeams}
+        onChanged={loadMeta}
       />
 
       <PhasesSection
         tournamentId={tournament.id}
         tournamentStatus={tournament.status}
+        onChanged={loadMeta}
       />
 
       <MatchesSection
@@ -1059,6 +1311,7 @@ export function AdminTournamentManagePage() {
         groups={groups}
         phases={phases}
         tournamentTeams={tournamentTeams}
+        onChanged={loadMeta}
       />
     </div>
   );

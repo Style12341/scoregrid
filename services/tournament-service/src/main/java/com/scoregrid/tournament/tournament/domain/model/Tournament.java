@@ -79,7 +79,7 @@ public class Tournament {
 
     private static boolean isValidTransition(TournamentStatus from, TournamentStatus to) {
         return switch (from) {
-            case DRAFT -> to == TournamentStatus.ACTIVE;
+            case DRAFT -> to == TournamentStatus.ACTIVE || to == TournamentStatus.CANCELLED;
             case ACTIVE -> to == TournamentStatus.FINISHED || to == TournamentStatus.CANCELLED;
             case FINISHED, CANCELLED -> false;
         };

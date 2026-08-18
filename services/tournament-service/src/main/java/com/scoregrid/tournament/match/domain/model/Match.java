@@ -108,9 +108,21 @@ public class Match {
     }
 
     public void reschedule(Instant newStartTime) {
+        reschedule(newStartTime, Instant.now());
+    }
+
+    public void reschedule(Instant newStartTime, Instant now) {
         validateTransition(MatchStatus.SCHEDULED);
+        validateFutureStartTime(newStartTime, now);
         this.startTime = newStartTime;
         this.status = MatchStatus.SCHEDULED;
+    }
+
+    public void changeStartTime(Instant newStartTime, Instant now) {
+        if (this.status == MatchStatus.SCHEDULED) {
+            validateFutureStartTime(newStartTime, now);
+        }
+        this.startTime = newStartTime;
     }
 
     /**
@@ -136,6 +148,12 @@ public class Match {
         if (!this.status.canTransitionTo(target)) {
             throw new IllegalStateException(
                     "Invalid transition: " + this.status + " → " + target);
+        }
+    }
+
+    private static void validateFutureStartTime(Instant startTime, Instant now) {
+        if (startTime == null || now == null || !startTime.isAfter(now)) {
+            throw new IllegalArgumentException("startTime must be in the future");
         }
     }
 

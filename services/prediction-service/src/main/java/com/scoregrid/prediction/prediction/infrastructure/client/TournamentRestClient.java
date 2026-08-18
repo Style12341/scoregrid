@@ -26,6 +26,7 @@ class TournamentRestClient implements TournamentClientPort {
 
     private static final Logger log = LoggerFactory.getLogger(TournamentRestClient.class);
     private static final String MATCH_PATH = "/api/matches/{id}";
+    private static final String TOURNAMENT_PATH = "/api/tournaments/{id}";
     private static final String ENROLLMENT_PATH = "/api/tournaments/{tournamentId}/participants/{userId}";
 
     private final RestClient restClient;
@@ -61,15 +62,36 @@ class TournamentRestClient implements TournamentClientPort {
                     })
                     .body(MatchResponse.class);
 
+            String tournamentStatus = getTournamentStatus(match.tournamentId());
+            boolean predictionsOpen = match.predictionsOpen() && "ACTIVE".equals(tournamentStatus);
+
             return new CachedMatch(
                     match.id(),
                     match.tournamentId(),
-                    match.predictionsOpen() ? "ACTIVE" : null,
+                    tournamentStatus,
                     match.status(),
                     match.startTime(),
-                    match.predictionsOpen()
+                    predictionsOpen
             );
         }, matchId);
+    }
+
+    private String getTournamentStatus(String tournamentId) {
+        TournamentResponse tournament = restClient.get()
+                .uri(TOURNAMENT_PATH, tournamentId)
+                .accept(MediaType.APPLICATION_JSON)
+                .retrieve()
+                .onStatus(HttpStatusCode::is4xxClientError, (req, res) -> {
+                    if (res.getStatusCode().value() == 404) {
+                        throw new DomainException(ErrorKind.NOT_FOUND, "NOT_FOUND",
+                                "Tournament " + tournamentId + " not found.");
+                    }
+                    throw new DomainException(ErrorKind.DOWNSTREAM_UNAVAILABLE,
+                            "DOWNSTREAM_UNAVAILABLE",
+                            "Tournament service returned error: " + res.getStatusCode());
+                })
+                .body(TournamentResponse.class);
+        return tournament.status();
     }
 
     @Override

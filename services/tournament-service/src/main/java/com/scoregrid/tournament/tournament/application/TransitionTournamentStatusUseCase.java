@@ -1,5 +1,7 @@
 package com.scoregrid.tournament.tournament.application;
 
+import com.scoregrid.tournament.match.domain.port.out.MatchEventPublisher;
+import com.scoregrid.tournament.match.domain.port.out.MatchRepository;
 import com.scoregrid.tournament.tournament.domain.model.Tournament;
 import com.scoregrid.tournament.tournament.domain.port.in.TransitionTournamentStatus;
 import com.scoregrid.tournament.tournament.domain.port.out.TournamentRepository;
@@ -13,9 +15,15 @@ import org.springframework.transaction.annotation.Transactional;
 public class TransitionTournamentStatusUseCase implements TransitionTournamentStatus {
 
     private final TournamentRepository tournamentRepository;
+    private final MatchRepository matchRepository;
+    private final MatchEventPublisher matchEventPublisher;
 
-    public TransitionTournamentStatusUseCase(TournamentRepository tournamentRepository) {
+    public TransitionTournamentStatusUseCase(TournamentRepository tournamentRepository,
+                                             MatchRepository matchRepository,
+                                             MatchEventPublisher matchEventPublisher) {
         this.tournamentRepository = tournamentRepository;
+        this.matchRepository = matchRepository;
+        this.matchEventPublisher = matchEventPublisher;
     }
 
     @Override
@@ -30,6 +38,9 @@ public class TransitionTournamentStatusUseCase implements TransitionTournamentSt
         } catch (IllegalStateException e) {
             throw new DomainException(ErrorKind.CONFLICT, "TOURNAMENT_NOT_ACTIVE", e.getMessage());
         }
-        return tournamentRepository.save(tournament);
+        var saved = tournamentRepository.save(tournament);
+        matchRepository.findByTournamentId(saved.getId())
+                .forEach(match -> matchEventPublisher.updated(match, saved.getStatus()));
+        return saved;
     }
 }

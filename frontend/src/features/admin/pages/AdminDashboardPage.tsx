@@ -25,7 +25,6 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { Separator } from "@/components/ui/separator";
-import { toApiError } from "@/lib/api";
 import {
   listTournaments,
   createTournament,
@@ -34,6 +33,7 @@ import {
   updateTournamentStatus,
   listTeams,
   createTeam,
+  updateTeam,
 } from "@/features/tournaments/api/tournaments";
 import type {
   Tournament,
@@ -41,10 +41,17 @@ import type {
   Team,
   CreateTeamInput,
 } from "@/features/tournaments/types/tournament";
+import { apiErrorMessage } from "@/features/tournaments/errors";
 import {
   TOURNAMENT_STATUS,
   type TournamentStatus,
 } from "@/features/tournaments/types/tournament";
+
+function formatDateOnly(dateStr: string | null): string {
+  if (!dateStr) return "Sin fecha";
+  const [year, month, day] = dateStr.split("-").map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString("es-AR");
+}
 
 // ── Tournament Form Dialog ────────────────────────────────────────────────
 
@@ -96,8 +103,7 @@ function TournamentFormDialog({
       setOpen(false);
       onSaved();
     } catch (e) {
-      const apiErr = toApiError(e);
-      setError(apiErr?.message ?? "No se pudo guardar el torneo.");
+      setError(apiErrorMessage(e, "No se pudo guardar el torneo."));
     } finally {
       setSubmitting(false);
     }
@@ -176,19 +182,22 @@ function TournamentFormDialog({
 // ── Team Form Dialog ──────────────────────────────────────────────────────
 
 function TeamFormDialog({
+  team,
   onSaved,
   trigger,
 }: {
+  team?: Team;
   onSaved: () => void;
   trigger: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
-  const [name, setName] = useState("");
-  const [shortName, setShortName] = useState("");
-  const [country, setCountry] = useState("");
-  const [logoUrl, setLogoUrl] = useState("");
+  const [name, setName] = useState(team?.name ?? "");
+  const [shortName, setShortName] = useState(team?.shortName ?? "");
+  const [country, setCountry] = useState(team?.country ?? "");
+  const [logoUrl, setLogoUrl] = useState(team?.logoUrl ?? "");
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const editing = Boolean(team);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -207,16 +216,21 @@ function TeamFormDialog({
 
     setSubmitting(true);
     try {
-      await createTeam(input);
+      if (team) {
+        await updateTeam(team.id, input);
+      } else {
+        await createTeam(input);
+      }
       setOpen(false);
-      setName("");
-      setShortName("");
-      setCountry("");
-      setLogoUrl("");
+      if (!editing) {
+        setName("");
+        setShortName("");
+        setCountry("");
+        setLogoUrl("");
+      }
       onSaved();
     } catch (e) {
-      const apiErr = toApiError(e);
-      setError(apiErr?.message ?? "No se pudo crear el equipo.");
+      setError(apiErrorMessage(e, editing ? "No se pudo actualizar el equipo." : "No se pudo crear el equipo."));
     } finally {
       setSubmitting(false);
     }
@@ -227,7 +241,7 @@ function TeamFormDialog({
       <DialogTrigger asChild>{trigger}</DialogTrigger>
       <DialogContent>
         <DialogHeader>
-          <DialogTitle>Crear equipo</DialogTitle>
+          <DialogTitle>{editing ? "Editar equipo" : "Crear equipo"}</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
           <FormField label="Nombre completo" required>
@@ -283,7 +297,7 @@ function TeamFormDialog({
           )}
 
           <Button type="submit" disabled={submitting}>
-            {submitting ? "Creando…" : "Crear equipo"}
+             {submitting ? "Guardando…" : editing ? "Guardar cambios" : "Crear equipo"}
           </Button>
         </form>
       </DialogContent>
@@ -302,15 +316,21 @@ export function AdminDashboardPage() {
   const [loadingTeams, setLoadingTeams] = useState(true);
   const [errorT, setErrorT] = useState<string | null>(null);
   const [errorTeams, setErrorTeams] = useState<string | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
 
-  const loadTournaments = useCallback(() => {
+  const loadTournaments = useCallback((pageNumber = page) => {
     setLoadingT(true);
     setErrorT(null);
-    listTournaments(undefined, 0, 50)
-      .then((page) => setTournaments(page.content))
-      .catch(() => setErrorT("No se pudieron cargar los torneos."))
+    listTournaments(undefined, pageNumber, 20)
+      .then((result) => {
+        setTournaments(result.content);
+        setTotalPages(result.totalPages);
+      })
+      .catch((requestError) => setErrorT(apiErrorMessage(requestError, "No se pudieron cargar los torneos.")))
       .finally(() => setLoadingT(false));
-  }, []);
+  }, [page]);
 
   const loadTeams = useCallback(() => {
     setLoadingTeams(true);
@@ -327,28 +347,33 @@ export function AdminDashboardPage() {
   }, [loadTournaments, loadTeams]);
 
   async function handleDelete(id: string) {
-    if (!confirm("¿Estás seguro de que querés eliminar este torneo?")) return;
+    if (!window.confirm("¿Estás seguro de que querés eliminar este torneo?")) return;
+    setActionError(null);
     try {
       await deleteTournament(id);
       loadTournaments();
     } catch (e) {
-      const apiErr = toApiError(e);
-      alert(apiErr?.message ?? "No se pudo eliminar el torneo.");
+      setActionError(apiErrorMessage(e, "No se pudo eliminar el torneo."));
     }
   }
 
   async function handleStatusChange(id: string, status: string) {
+    setActionError(null);
     try {
       await updateTournamentStatus(id, status);
       loadTournaments();
     } catch (e) {
-      const apiErr = toApiError(e);
-      alert(apiErr?.message ?? "No se pudo cambiar el estado.");
+      setActionError(apiErrorMessage(e, "No se pudo cambiar el estado."));
     }
   }
 
   return (
     <div className="flex flex-col gap-8">
+      {actionError && (
+        <p className="rounded-md bg-destructive/10 px-3.5 py-3 text-sm font-bold text-destructive">
+          {actionError}
+        </p>
+      )}
       {/* Torneos Section */}
       <section>
         <PageTitle
@@ -392,7 +417,7 @@ export function AdminDashboardPage() {
                         <TournamentStatusBadge status={t.status as TournamentStatus} />
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {t.startDate} – {t.endDate}
+                         {formatDateOnly(t.startDate)} – {formatDateOnly(t.endDate)}
                       </TableCell>
                       <TableCell className="text-right">
                         <div className="flex items-center justify-end gap-1">
@@ -418,6 +443,19 @@ export function AdminDashboardPage() {
                               }
                             >
                               ⏹
+                            </Button>
+                          )}
+                          {(t.status === TOURNAMENT_STATUS.DRAFT ||
+                            t.status === TOURNAMENT_STATUS.ACTIVE) && (
+                            <Button
+                              size="icon-xs"
+                              variant="ghost"
+                              title="Cancelar"
+                              onClick={() =>
+                                handleStatusChange(t.id, TOURNAMENT_STATUS.CANCELLED)
+                              }
+                            >
+                              ×
                             </Button>
                           )}
 
@@ -456,6 +494,30 @@ export function AdminDashboardPage() {
             </CardContent>
           </Card>
         )}
+
+        {totalPages > 1 && !loadingT && !errorT && (
+          <div className="mt-4 flex items-center justify-between gap-3">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={page === 0}
+              onClick={() => setPage((current) => current - 1)}
+            >
+              Anterior
+            </Button>
+            <span className="text-sm text-muted-foreground">
+              Página {page + 1} de {totalPages}
+            </span>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={page + 1 >= totalPages}
+              onClick={() => setPage((current) => current + 1)}
+            >
+              Siguiente
+            </Button>
+          </div>
+        )}
       </section>
 
       <Separator />
@@ -493,18 +555,30 @@ export function AdminDashboardPage() {
                     <TableHead>Corto</TableHead>
                     <TableHead>País</TableHead>
                     <TableHead>Logo</TableHead>
+                    <TableHead className="text-right">Acciones</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {teams.map((team) => (
                     <TableRow key={team.id}>
                       <TableCell className="font-medium">{team.name}</TableCell>
-                      <TableCell className="font-bold">{team.shortName}</TableCell>
+                      <TableCell className="font-bold">{team.shortName || team.name}</TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {team.country}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
                         {team.logoUrl ? "✓" : "—"}
+                      </TableCell>
+                      <TableCell className="text-right">
+                        <TeamFormDialog
+                          team={team}
+                          onSaved={loadTeams}
+                          trigger={
+                            <Button size="icon-xs" variant="ghost" title="Editar">
+                              <Pencil className="size-3.5" aria-hidden="true" />
+                            </Button>
+                          }
+                        />
                       </TableCell>
                     </TableRow>
                   ))}

@@ -62,8 +62,8 @@ class UpdateMatchUseCaseTest {
     private Group group;
 
     private static final Instant NOW = Instant.parse("2026-08-01T00:00:00Z");
-    private static final Instant FUTURE = Instant.parse("2026-08-14T18:30:00Z");
-    private static final Instant LATER = Instant.parse("2026-08-15T20:00:00Z");
+    private static final Instant FUTURE = Instant.now().plusSeconds(7200);
+    private static final Instant LATER = Instant.now().plusSeconds(10800);
     private static final TeamRef homeRef = TeamRef.of(7L, "Argentina", "ARG");
     private static final TeamRef awayRef = TeamRef.of(8L, "Brazil", "BRA");
 
@@ -117,9 +117,9 @@ class UpdateMatchUseCaseTest {
     }
 
     @Test
-    void shouldThrowConflictWhenTournamentNotActive() {
+    void shouldThrowConflictWhenTournamentIsTerminal() {
         var draft = Tournament.reconstitute(1L, "Copa", "Desc",
-                TournamentStatus.DRAFT, null, null, "42", NOW, NOW);
+                TournamentStatus.CANCELLED, null, null, "42", NOW, NOW);
         var match = matchWithStatus(MatchStatus.SCHEDULED);
         when(matchRepository.findById(99L)).thenReturn(Optional.of(match));
         when(tournamentRepository.findById(1L)).thenReturn(Optional.of(draft));
@@ -182,18 +182,10 @@ class UpdateMatchUseCaseTest {
         var finished = matchWithStatus(MatchStatus.FINISHED);
         when(matchRepository.findById(99L)).thenReturn(Optional.of(finished));
         when(tournamentRepository.findById(1L)).thenReturn(Optional.of(activeTournament));
-        when(tournamentTeamRepository.existsByTournamentIdAndTeamId(1L, 7L)).thenReturn(true);
-        when(tournamentTeamRepository.existsByTournamentIdAndTeamId(1L, 8L)).thenReturn(true);
-        when(groupRepository.findById(3L)).thenReturn(Optional.of(group));
-        when(groupTeamRepository.existsByGroupIdAndTeamId(3L, 7L)).thenReturn(true);
-        when(groupTeamRepository.existsByGroupIdAndTeamId(3L, 8L)).thenReturn(true);
-        when(teamRepository.findById(7L)).thenReturn(Optional.of(homeTeam));
-        when(teamRepository.findById(8L)).thenReturn(Optional.of(awayTeam));
-
         var cmd = new UpdateMatch.Command(99L, 3L, null, 7L, 8L, FUTURE, MatchStatus.POSTPONED);
         assertThatThrownBy(() -> useCase.execute(cmd))
                 .isInstanceOf(DomainException.class)
-                .satisfies(e -> assertThat(((DomainException) e).kind()).isEqualTo(ErrorKind.UNPROCESSABLE));
+                 .satisfies(e -> assertThat(((DomainException) e).kind()).isEqualTo(ErrorKind.CONFLICT));
     }
 
     // -- Event publishing -------------------------------------------------------

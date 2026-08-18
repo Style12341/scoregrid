@@ -1,6 +1,6 @@
-import { createContext, useCallback, useContext, useMemo, useState } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { ReactNode } from "react";
-import { api, TOKEN_STORAGE_KEY } from "../lib/api";
+import { api, AUTH_EXPIRED_EVENT, TOKEN_STORAGE_KEY, USER_STORAGE_KEY } from "../lib/api";
 
 export type Role = "PLAYER" | "ADMIN";
 
@@ -27,8 +27,6 @@ interface AuthContextValue {
 
 const AuthContext = createContext<AuthContextValue | null>(null);
 
-const USER_STORAGE_KEY = "scoregrid.user";
-
 function readStoredUser(): User | null {
   const raw = localStorage.getItem(USER_STORAGE_KEY);
   if (!raw) return null;
@@ -42,6 +40,12 @@ function readStoredUser(): User | null {
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(readStoredUser);
+
+  useEffect(() => {
+    const handleExpiredSession = () => setUser(null);
+    window.addEventListener(AUTH_EXPIRED_EVENT, handleExpiredSession);
+    return () => window.removeEventListener(AUTH_EXPIRED_EVENT, handleExpiredSession);
+  }, []);
 
   const login = useCallback(async (usernameOrEmail: string, password: string) => {
     const { data } = await api.post<LoginResponse>("/api/auth/login", {

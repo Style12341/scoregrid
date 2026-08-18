@@ -91,7 +91,7 @@ class TournamentServiceMatchFlowIntegrationTest {
         em.clear();
 
         var updated = matchJpaRepository.findById(saved.getId()).orElseThrow();
-        assertThat(updated.getStartTime()).isEqualTo("2026-08-15T20:00:00Z");
+        assertThat(updated.getStartTime()).isEqualTo(Instant.parse("2026-08-15T20:00:00Z"));
 
         // 4. Load result
         var toFinish = matchJpaRepository.findById(saved.getId()).orElseThrow();

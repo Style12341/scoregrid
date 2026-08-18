@@ -65,8 +65,15 @@ class TournamentTest {
             assertThat(tournament.getStatus()).isEqualTo(TournamentStatus.CANCELLED);
         }
 
+        @Test
+        void shouldTransitionDraftToCancelled() {
+            var tournament = Tournament.create("Copa", null, null, null, "42");
+            tournament.transitionTo(TournamentStatus.CANCELLED);
+            assertThat(tournament.getStatus()).isEqualTo(TournamentStatus.CANCELLED);
+        }
+
         @ParameterizedTest
-        @EnumSource(value = TournamentStatus.class, names = {"FINISHED", "CANCELLED"})
+        @EnumSource(value = TournamentStatus.class, names = {"FINISHED"})
         void shouldRejectTransitionToTerminal(TournamentStatus target) {
             var tournament = Tournament.create("Copa", null, LocalDate.now().plusDays(1), null, "42");
             assertThatThrownBy(() -> tournament.transitionTo(target))
@@ -117,8 +124,9 @@ class TournamentTest {
 
         @Test
         void shouldRejectActivationWhenEndDateBeforeStartDate() {
+            var startDate = LocalDate.now().plusDays(10);
             var tournament = Tournament.create("Copa", null,
-                    LocalDate.of(2026, 8, 10), LocalDate.of(2026, 8, 5), "42");
+                    startDate, startDate.minusDays(5), "42");
             assertThatThrownBy(() -> tournament.transitionTo(TournamentStatus.ACTIVE))
                     .hasMessageContaining("endDate");
         }

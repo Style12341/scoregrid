@@ -9,6 +9,8 @@ import com.scoregrid.tournament.shared.error.ErrorKind;
 import com.scoregrid.tournament.team.domain.model.Team;
 import com.scoregrid.tournament.team.domain.port.out.TeamRepository;
 import com.scoregrid.tournament.team.domain.port.out.TournamentTeamRepository;
+import com.scoregrid.tournament.tournament.domain.model.Tournament;
+import com.scoregrid.tournament.tournament.domain.port.out.TournamentRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -21,6 +23,7 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyLong;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -39,6 +42,9 @@ class AssignTeamsToGroupUseCaseTest {
     @Mock
     private TeamRepository teamRepository;
 
+    @Mock
+    private TournamentRepository tournamentRepository;
+
     private AssignTeamsToGroupUseCase useCase;
     private Group group;
     private Team argTeam;
@@ -47,7 +53,9 @@ class AssignTeamsToGroupUseCaseTest {
     @BeforeEach
     void setUp() {
         useCase = new AssignTeamsToGroupUseCase(groupRepository, groupTeamRepository,
-                tournamentTeamRepository, teamRepository);
+                tournamentTeamRepository, teamRepository, tournamentRepository);
+        lenient().when(tournamentRepository.findById(1L))
+                .thenReturn(Optional.of(Tournament.create("Copa", null, null, null, "42")));
 
         group = Group.reconstitute(10L, 1L, "Grupo A", 0);
 
@@ -106,7 +114,7 @@ class AssignTeamsToGroupUseCaseTest {
                 .isInstanceOf(DomainException.class)
                 .satisfies(e -> {
                     assertThat(((DomainException) e).kind()).isEqualTo(ErrorKind.CONFLICT);
-                    assertThat(((DomainException) e).errorCode()).isEqualTo("ALREADY_IN_GROUP");
+                     assertThat(((DomainException) e).errorCode()).isEqualTo("VALIDATION_FAILED");
                 });
     }
 
@@ -130,7 +138,7 @@ class AssignTeamsToGroupUseCaseTest {
                 .isInstanceOf(DomainException.class)
                 .satisfies(e -> {
                     assertThat(((DomainException) e).kind()).isEqualTo(ErrorKind.UNPROCESSABLE);
-                    assertThat(((DomainException) e).errorCode()).isEqualTo("NOT_REGISTERED");
+                     assertThat(((DomainException) e).errorCode()).isEqualTo("VALIDATION_FAILED");
                 });
     }
 }

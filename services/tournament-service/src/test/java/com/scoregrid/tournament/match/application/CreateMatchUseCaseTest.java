@@ -91,9 +91,9 @@ class CreateMatchUseCaseTest {
     }
 
     @Test
-    void shouldThrowConflictWhenTournamentNotActive() {
+    void shouldThrowConflictWhenTournamentIsTerminal() {
         var draft = Tournament.reconstitute(1L, "Copa", "Desc",
-                TournamentStatus.DRAFT, null, null, "42", Instant.now(), Instant.now());
+                TournamentStatus.CANCELLED, null, null, "42", Instant.now(), Instant.now());
         when(tournamentRepository.findById(1L)).thenReturn(Optional.of(draft));
 
         var cmd = new CreateMatch.Command(1L, 3L, null, 7L, 8L,

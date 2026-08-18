@@ -19,6 +19,8 @@ import org.springframework.http.MediaType;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
+import org.springframework.test.web.servlet.request.RequestPostProcessor;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 
 import java.time.Instant;
 import java.util.List;
@@ -53,6 +55,12 @@ class PredictionControllerTest {
     @MockitoBean
     private GetPredictionsUseCase getPredictions;
 
+    private static RequestPostProcessor jwtWithRole(String role) {
+        return jwt()
+                .jwt(j -> j.subject("42"))
+                .authorities(new SimpleGrantedAuthority("ROLE_" + role));
+    }
+
     private static Prediction samplePrediction() {
         return new Prediction("p1", "42", "t1", "m1",
                 PredictionType.EXACT_SCORE, 2, 1, DerivedOutcome.HOME_WIN,
@@ -66,7 +74,7 @@ class PredictionControllerTest {
                 .willReturn(samplePrediction());
 
         mockMvc.perform(post("/api/predictions")
-                        .with(jwt().jwt(j -> j.subject("42")))
+                        .with(jwtWithRole("PLAYER"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"matchId":"m1","homeScore":2,"awayScore":1}"""))
@@ -98,7 +106,7 @@ class PredictionControllerTest {
                         "Match has already started; predictions are locked."));
 
         mockMvc.perform(post("/api/predictions")
-                        .with(jwt().jwt(j -> j.subject("42")))
+                        .with(jwtWithRole("PLAYER"))
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"matchId":"m1","homeScore":2,"awayScore":1}"""))
@@ -115,10 +123,7 @@ class PredictionControllerTest {
                 .willReturn(List.of(samplePrediction()));
 
         mockMvc.perform(get("/api/predictions/match/m1")
-                        .with(jwt().jwt(j -> {
-                            j.subject("42");
-                            j.claim("roles", List.of("ADMIN"));
-                        })))
+                        .with(jwtWithRole("ADMIN")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value("p1"));
     }
@@ -127,10 +132,7 @@ class PredictionControllerTest {
     @DisplayName("GET /api/predictions/match/{matchId} rejects PLAYER role")
     void matchPredictionsRejectsPlayer() throws Exception {
         mockMvc.perform(get("/api/predictions/match/m1")
-                        .with(jwt().jwt(j -> {
-                            j.subject("42");
-                            j.claim("roles", List.of("PLAYER"));
-                        })))
+                        .with(jwtWithRole("PLAYER")))
                 .andExpect(status().isForbidden());
     }
 
@@ -141,10 +143,7 @@ class PredictionControllerTest {
                 .willReturn(List.of(samplePrediction()));
 
         mockMvc.perform(get("/api/predictions/me")
-                        .with(jwt().jwt(j -> {
-                            j.subject("42");
-                            j.claim("roles", List.of("PLAYER"));
-                        })))
+                        .with(jwtWithRole("PLAYER")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].id").value("p1"));
     }
@@ -156,10 +155,7 @@ class PredictionControllerTest {
                 .willReturn(Optional.empty());
 
         mockMvc.perform(get("/api/predictions/me/match/m99")
-                        .with(jwt().jwt(j -> {
-                            j.subject("42");
-                            j.claim("roles", List.of("PLAYER"));
-                        })))
+                        .with(jwtWithRole("PLAYER")))
                 .andExpect(status().isNotFound());
     }
 }

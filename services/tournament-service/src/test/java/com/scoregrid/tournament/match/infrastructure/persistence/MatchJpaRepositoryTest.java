@@ -78,7 +78,7 @@ class MatchJpaRepositoryTest {
         assertThat(found.get().getStatus()).isEqualTo("SCHEDULED");
         assertThat(found.get().getHomeTeam().getName()).isEqualTo("Argentina");
         assertThat(found.get().getAwayTeam().getShortName()).isEqualTo("BRA");
-        assertThat(found.get().getStartTime()).isEqualTo("2026-08-14T18:30:00Z");
+        assertThat(found.get().getStartTime()).isEqualTo(Instant.parse("2026-08-14T18:30:00Z"));
     }
 
     @Test

@@ -86,13 +86,14 @@ class PhaseControllerTest {
         @Test
         @WithMockUser(roles = "ADMIN")
         void shouldRejectInvalidPhaseType() throws Exception {
-            // Jackson cannot deserialize an unknown enum value; it surfaces as 500
+            // Jackson cannot deserialize an unknown enum value.
             mockMvc.perform(post("/api/tournaments/1/phases")
                             .with(csrf())
                             .contentType(MediaType.APPLICATION_JSON)
                             .content("""
                                     {"type":"INVALID_TYPE","displayOrder":0}"""))
-                    .andExpect(status().is5xxServerError());
+                    .andExpect(status().isBadRequest())
+                    .andExpect(jsonPath("$.error").value("VALIDATION_FAILED"));
         }
 
         @Test

@@ -1,15 +1,18 @@
 package com.scoregrid.tournament.shared.error;
 
 import jakarta.servlet.http.HttpServletRequest;
+import jakarta.validation.ConstraintViolationException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.AccessDeniedException;
 import org.springframework.validation.FieldError;
+import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 
 import java.util.stream.Collectors;
 
@@ -27,12 +30,24 @@ public class GlobalExceptionHandler {
 
     @ExceptionHandler(MethodArgumentNotValidException.class)
     public ResponseEntity<ApiError> handleValidation(MethodArgumentNotValidException ex,
-                                                     HttpServletRequest request) {
+                                                      HttpServletRequest request) {
         String detail = ex.getBindingResult().getFieldErrors().stream()
                 .map(this::describe)
                 .collect(Collectors.joining("; "));
         return ResponseEntity.badRequest()
                 .body(ApiError.of(400, "VALIDATION_FAILED", detail, request.getRequestURI()));
+    }
+
+    @ExceptionHandler({
+            HttpMessageNotReadableException.class,
+            MethodArgumentTypeMismatchException.class,
+            ConstraintViolationException.class
+    })
+    public ResponseEntity<ApiError> handleMalformedRequest(Exception ex,
+                                                            HttpServletRequest request) {
+        return ResponseEntity.badRequest()
+                .body(ApiError.of(400, "VALIDATION_FAILED",
+                        "Malformed request.", request.getRequestURI()));
     }
 
     @ExceptionHandler(AccessDeniedException.class)

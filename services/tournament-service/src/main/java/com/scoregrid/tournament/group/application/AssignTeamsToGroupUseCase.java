@@ -8,10 +8,11 @@ import com.scoregrid.tournament.shared.error.ErrorKind;
 import com.scoregrid.tournament.team.domain.model.Team;
 import com.scoregrid.tournament.team.domain.port.out.TeamRepository;
 import com.scoregrid.tournament.team.domain.port.out.TournamentTeamRepository;
+import com.scoregrid.tournament.tournament.domain.model.TournamentStatus;
+import com.scoregrid.tournament.tournament.domain.port.out.TournamentRepository;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -22,15 +23,18 @@ public class AssignTeamsToGroupUseCase implements AssignTeamsToGroup {
     private final GroupTeamRepository groupTeamRepository;
     private final TournamentTeamRepository tournamentTeamRepository;
     private final TeamRepository teamRepository;
+    private final TournamentRepository tournamentRepository;
 
     public AssignTeamsToGroupUseCase(GroupRepository groupRepository,
                                       GroupTeamRepository groupTeamRepository,
                                       TournamentTeamRepository tournamentTeamRepository,
-                                      TeamRepository teamRepository) {
+                                      TeamRepository teamRepository,
+                                      TournamentRepository tournamentRepository) {
         this.groupRepository = groupRepository;
         this.groupTeamRepository = groupTeamRepository;
         this.tournamentTeamRepository = tournamentTeamRepository;
         this.teamRepository = teamRepository;
+        this.tournamentRepository = tournamentRepository;
     }
 
     @Override
@@ -40,12 +44,19 @@ public class AssignTeamsToGroupUseCase implements AssignTeamsToGroup {
                         "Group not found: " + command.groupId()));
 
         Long tournamentId = group.getTournamentId();
+        var tournament = tournamentRepository.findById(tournamentId)
+                .orElseThrow(() -> new DomainException(ErrorKind.NOT_FOUND, "NOT_FOUND",
+                        "Tournament not found: " + tournamentId));
+        if (tournament.getStatus() != TournamentStatus.DRAFT
+                && tournament.getStatus() != TournamentStatus.ACTIVE) {
+            throw new DomainException(ErrorKind.CONFLICT, "TOURNAMENT_NOT_ACTIVE",
+                    "Tournament is not configurable in state " + tournament.getStatus());
+        }
 
-        var assigned = new ArrayList<Team>();
         for (Long teamId : command.teamIds()) {
             // Check team is registered in the tournament
             if (!tournamentTeamRepository.existsByTournamentIdAndTeamId(tournamentId, teamId)) {
-                throw new DomainException(ErrorKind.UNPROCESSABLE, "NOT_REGISTERED",
+                throw new DomainException(ErrorKind.UNPROCESSABLE, "VALIDATION_FAILED",
                         "Team " + teamId + " not registered in this tournament");
             }
 
@@ -53,7 +64,7 @@ public class AssignTeamsToGroupUseCase implements AssignTeamsToGroup {
             var existingGroup = groupTeamRepository
                     .findGroupIdByTeamIdAndTournamentId(teamId, tournamentId);
             if (existingGroup.isPresent() && !existingGroup.get().equals(command.groupId())) {
-                throw new DomainException(ErrorKind.CONFLICT, "ALREADY_IN_GROUP",
+                throw new DomainException(ErrorKind.CONFLICT, "VALIDATION_FAILED",
                         "Team " + teamId + " already belongs to group " + existingGroup.get()
                         + " in this tournament");
             }

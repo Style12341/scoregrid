@@ -2,11 +2,13 @@ package com.scoregrid.prediction.prediction.infrastructure.persistence;
 
 import com.mongodb.MongoWriteException;
 import com.scoregrid.prediction.TestcontainersConfiguration;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.DisplayName;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.data.mongodb.test.autoconfigure.DataMongoTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DuplicateKeyException;
 
 import java.time.Instant;
 
@@ -19,6 +21,11 @@ class MongoPredictionRepositoryTest {
 
     @Autowired
     private MongoPredictionRepository repository;
+
+    @BeforeEach
+    void cleanCollection() {
+        repository.deleteAll();
+    }
 
     @Test
     @DisplayName("unique index on (userId, matchId) rejects duplicate")
@@ -35,7 +42,8 @@ class MongoPredictionRepositoryTest {
                 Instant.now(), Instant.now());
 
         assertThatThrownBy(() -> repository.save(duplicate))
-                .isInstanceOf(MongoWriteException.class)
+                .isInstanceOf(DuplicateKeyException.class)
+                .hasRootCauseInstanceOf(MongoWriteException.class)
                 .hasMessageContaining("E11000");
     }
 

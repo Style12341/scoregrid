@@ -13,7 +13,6 @@ import com.scoregrid.tournament.shared.error.DomainException;
 import com.scoregrid.tournament.shared.error.ErrorKind;
 import com.scoregrid.tournament.team.domain.port.out.TeamRepository;
 import com.scoregrid.tournament.team.domain.port.out.TournamentTeamRepository;
-import com.scoregrid.tournament.tournament.domain.model.Tournament;
 import com.scoregrid.tournament.tournament.domain.model.TournamentStatus;
 import com.scoregrid.tournament.tournament.domain.port.out.TournamentRepository;
 import org.springframework.stereotype.Service;
@@ -62,13 +61,38 @@ public class UpdateMatchUseCase implements UpdateMatch {
                 .orElseThrow(() -> new DomainException(ErrorKind.NOT_FOUND, "NOT_FOUND",
                         "Tournament not found: " + match.getTournamentId()));
 
-        if (tournament.getStatus() != TournamentStatus.ACTIVE) {
+        if (tournament.getStatus() != TournamentStatus.DRAFT
+                && tournament.getStatus() != TournamentStatus.ACTIVE) {
             throw new DomainException(ErrorKind.CONFLICT, "TOURNAMENT_NOT_ACTIVE",
-                    "Tournament is not ACTIVE");
+                    "Tournament is not configurable in state " + tournament.getStatus());
         }
 
         MatchStatus previousStatus = match.getStatus();
         Instant previousStartTime = match.getStartTime();
+
+        validateCommand(command);
+        if (previousStatus.isTerminal()) {
+            throw new DomainException(ErrorKind.CONFLICT, "INVALID_MATCH_STATE",
+                    "Cannot update a match in terminal state " + previousStatus);
+        }
+        if (tournament.getStatus() == TournamentStatus.DRAFT
+                && command.status() != MatchStatus.SCHEDULED) {
+            throw new DomainException(ErrorKind.CONFLICT, "INVALID_MATCH_STATE",
+                    "A match in a DRAFT tournament must remain SCHEDULED");
+        }
+        if (command.status() == MatchStatus.FINISHED) {
+            throw new DomainException(ErrorKind.CONFLICT, "INVALID_MATCH_STATE",
+                    "Use the result endpoint to finish a match");
+        }
+
+        boolean startTimeChanged = !command.startTime().equals(previousStartTime);
+        if (startTimeChanged
+                && previousStatus != MatchStatus.SCHEDULED
+                && !(previousStatus == MatchStatus.POSTPONED
+                && command.status() == MatchStatus.SCHEDULED)) {
+            throw new DomainException(ErrorKind.CONFLICT, "INVALID_MATCH_STATE",
+                    "Only a scheduled match can have its startTime changed");
+        }
 
         // Validate group/phase constraints if they changed
         if (command.groupId() != null) {
@@ -107,15 +131,21 @@ public class UpdateMatchUseCase implements UpdateMatch {
 
         // Apply status transition if requested
         try {
-            applyStatusTransition(match, command.status(), command.startTime());
+            applyStatusTransition(match, command.status(), command.startTime(), Instant.now());
         } catch (IllegalStateException e) {
-            throw new DomainException(ErrorKind.UNPROCESSABLE, "INVALID_MATCH_STATE", e.getMessage());
+            throw new DomainException(ErrorKind.CONFLICT, "INVALID_MATCH_STATE", e.getMessage());
+        } catch (IllegalArgumentException e) {
+            throw new DomainException(ErrorKind.UNPROCESSABLE, "VALIDATION_FAILED", e.getMessage());
         }
 
-        // Apply startTime change if status didn't already handle it
-        if (!command.startTime().equals(match.getStartTime())
-                && match.getStatus() != MatchStatus.POSTPONED) {
-            match.setStartTime(command.startTime());
+        // A scheduled match keeps the future-start invariant when its kickoff changes.
+        if (startTimeChanged && previousStatus == MatchStatus.SCHEDULED
+                && command.status() == MatchStatus.SCHEDULED) {
+            try {
+                match.changeStartTime(command.startTime(), Instant.now());
+            } catch (IllegalArgumentException e) {
+                throw new DomainException(ErrorKind.UNPROCESSABLE, "VALIDATION_FAILED", e.getMessage());
+            }
         }
 
         var saved = matchRepository.save(match);
@@ -130,7 +160,8 @@ public class UpdateMatchUseCase implements UpdateMatch {
         return saved;
     }
 
-    private void applyStatusTransition(Match match, MatchStatus targetStatus, Instant newStartTime) {
+    private void applyStatusTransition(Match match, MatchStatus targetStatus,
+                                       Instant newStartTime, Instant now) {
         if (targetStatus == match.getStatus()) {
             return; // no-op
         }
@@ -139,20 +170,39 @@ public class UpdateMatchUseCase implements UpdateMatch {
             case FINISHED -> match.finish();
             case POSTPONED -> match.postpone();
             case CANCELLED -> match.cancel();
-            case SCHEDULED -> match.reschedule(newStartTime);
+            case SCHEDULED -> match.reschedule(newStartTime, now);
         }
+    }
+
+    private void validateCommand(Command command) {
+        if (command.homeTeamId() == null || command.awayTeamId() == null) {
+            throw validation("Both homeTeamId and awayTeamId are required");
+        }
+        if (command.homeTeamId().equals(command.awayTeamId())) {
+            throw validation("Home team and away team must differ");
+        }
+        if ((command.groupId() == null) == (command.phaseId() == null)) {
+            throw validation("Exactly one of groupId or phaseId is required");
+        }
+        if (command.startTime() == null || command.status() == null) {
+            throw validation("startTime and status are required");
+        }
+    }
+
+    private DomainException validation(String message) {
+        return new DomainException(ErrorKind.UNPROCESSABLE, "VALIDATION_FAILED", message);
     }
 
     private void validateTeamRegistered(Long tournamentId, Long teamId) {
         if (!tournamentTeamRepository.existsByTournamentIdAndTeamId(tournamentId, teamId)) {
-            throw new DomainException(ErrorKind.UNPROCESSABLE, "NOT_REGISTERED",
+            throw new DomainException(ErrorKind.UNPROCESSABLE, "VALIDATION_FAILED",
                     "Team " + teamId + " not registered in this tournament");
         }
     }
 
     private void validateTeamInGroup(Long groupId, Long teamId) {
         if (!groupTeamRepository.existsByGroupIdAndTeamId(groupId, teamId)) {
-            throw new DomainException(ErrorKind.UNPROCESSABLE, "NOT_IN_GROUP",
+            throw new DomainException(ErrorKind.UNPROCESSABLE, "VALIDATION_FAILED",
                     "Team " + teamId + " is not in group " + groupId);
         }
     }

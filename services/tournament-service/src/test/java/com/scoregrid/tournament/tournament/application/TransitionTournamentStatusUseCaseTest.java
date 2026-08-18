@@ -1,5 +1,7 @@
 package com.scoregrid.tournament.tournament.application;
 
+import com.scoregrid.tournament.match.domain.port.out.MatchEventPublisher;
+import com.scoregrid.tournament.match.domain.port.out.MatchRepository;
 import com.scoregrid.tournament.tournament.domain.model.Tournament;
 import com.scoregrid.tournament.tournament.domain.model.TournamentStatus;
 import com.scoregrid.tournament.tournament.domain.port.in.TransitionTournamentStatus;
@@ -15,10 +17,12 @@ import org.mockito.junit.jupiter.MockitoExtension;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.Optional;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -26,12 +30,18 @@ class TransitionTournamentStatusUseCaseTest {
 
     @Mock
     private TournamentRepository tournamentRepository;
+    @Mock
+    private MatchRepository matchRepository;
+    @Mock
+    private MatchEventPublisher matchEventPublisher;
 
     private TransitionTournamentStatusUseCase useCase;
 
     @BeforeEach
     void setUp() {
-        useCase = new TransitionTournamentStatusUseCase(tournamentRepository);
+        useCase = new TransitionTournamentStatusUseCase(
+                tournamentRepository, matchRepository, matchEventPublisher);
+        lenient().when(matchRepository.findByTournamentId(1L)).thenReturn(List.of());
     }
 
     @Test

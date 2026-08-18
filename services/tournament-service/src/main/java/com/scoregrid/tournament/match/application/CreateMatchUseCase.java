@@ -1,7 +1,6 @@
 package com.scoregrid.tournament.match.application;
 
 import com.scoregrid.tournament.match.domain.model.Match;
-import com.scoregrid.tournament.match.domain.model.MatchStatus;
 import com.scoregrid.tournament.match.domain.model.TeamRef;
 import com.scoregrid.tournament.match.domain.port.in.CreateMatch;
 import com.scoregrid.tournament.match.domain.port.out.MatchEventPublisher;
@@ -57,10 +56,13 @@ public class CreateMatchUseCase implements CreateMatch {
                 .orElseThrow(() -> new DomainException(ErrorKind.NOT_FOUND, "NOT_FOUND",
                         "Tournament not found: " + command.tournamentId()));
 
-        if (tournament.getStatus() != TournamentStatus.ACTIVE) {
+        if (tournament.getStatus() != TournamentStatus.DRAFT
+                && tournament.getStatus() != TournamentStatus.ACTIVE) {
             throw new DomainException(ErrorKind.CONFLICT, "TOURNAMENT_NOT_ACTIVE",
-                    "Tournament is not ACTIVE");
+                    "Tournament is not configurable in state " + tournament.getStatus());
         }
+
+        validateCommand(command);
 
         // Validate teams are registered in the tournament
         validateTeamRegistered(command.tournamentId(), command.homeTeamId());
@@ -97,13 +99,32 @@ public class CreateMatchUseCase implements CreateMatch {
         }
 
         var saved = matchRepository.save(match);
-        eventPublisher.scheduled(saved, TournamentStatus.ACTIVE);
+        eventPublisher.scheduled(saved, tournament.getStatus());
         return saved;
+    }
+
+    private void validateCommand(Command command) {
+        if (command.homeTeamId() == null || command.awayTeamId() == null) {
+            throw validation("Both homeTeamId and awayTeamId are required");
+        }
+        if (command.homeTeamId().equals(command.awayTeamId())) {
+            throw validation("Home team and away team must differ");
+        }
+        if ((command.groupId() == null) == (command.phaseId() == null)) {
+            throw validation("Exactly one of groupId or phaseId is required");
+        }
+        if (command.startTime() == null) {
+            throw validation("startTime is required");
+        }
+    }
+
+    private DomainException validation(String message) {
+        return new DomainException(ErrorKind.UNPROCESSABLE, "VALIDATION_FAILED", message);
     }
 
     private void validateTeamRegistered(Long tournamentId, Long teamId) {
         if (!tournamentTeamRepository.existsByTournamentIdAndTeamId(tournamentId, teamId)) {
-            throw new DomainException(ErrorKind.UNPROCESSABLE, "NOT_REGISTERED",
+            throw new DomainException(ErrorKind.UNPROCESSABLE, "VALIDATION_FAILED",
                     "Team " + teamId + " not registered in this tournament");
         }
     }
@@ -130,7 +151,7 @@ public class CreateMatchUseCase implements CreateMatch {
 
     private void validateTeamInGroup(Long groupId, Long teamId) {
         if (!groupTeamRepository.existsByGroupIdAndTeamId(groupId, teamId)) {
-            throw new DomainException(ErrorKind.UNPROCESSABLE, "NOT_IN_GROUP",
+            throw new DomainException(ErrorKind.UNPROCESSABLE, "VALIDATION_FAILED",
                     "Team " + teamId + " is not in group " + groupId);
         }
     }

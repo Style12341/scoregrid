@@ -5,6 +5,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
+import java.time.Instant;
 import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
@@ -18,7 +19,17 @@ class InMemoryMatchCache implements MatchCachePort {
 
     @Override
     public Optional<CachedMatch> get(String matchId) {
-        return Optional.ofNullable(cache.get(matchId));
+        CachedMatch match = cache.get(matchId);
+        if (match != null
+                && match.predictionsOpen()
+                && "SCHEDULED".equals(match.matchStatus())
+                && match.startTime() != null
+                && !Instant.now().isBefore(match.startTime())) {
+            cache.remove(matchId, match);
+            log.debug("Cache expired at kickoff for match {}", matchId);
+            return Optional.empty();
+        }
+        return Optional.ofNullable(match);
     }
 
     @Override

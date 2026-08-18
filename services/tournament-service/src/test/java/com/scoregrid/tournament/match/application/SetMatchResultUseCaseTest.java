@@ -8,6 +8,9 @@ import com.scoregrid.tournament.match.domain.port.out.MatchEventPublisher;
 import com.scoregrid.tournament.match.domain.port.out.MatchRepository;
 import com.scoregrid.tournament.shared.error.DomainException;
 import com.scoregrid.tournament.shared.error.ErrorKind;
+import com.scoregrid.tournament.tournament.domain.model.Tournament;
+import com.scoregrid.tournament.tournament.domain.model.TournamentStatus;
+import com.scoregrid.tournament.tournament.domain.port.out.TournamentRepository;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -15,12 +18,14 @@ import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.lenient;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -30,6 +35,8 @@ class SetMatchResultUseCaseTest {
     private MatchRepository matchRepository;
     @Mock
     private MatchEventPublisher eventPublisher;
+    @Mock
+    private TournamentRepository tournamentRepository;
 
     private SetMatchResultUseCase useCase;
 
@@ -41,7 +48,10 @@ class SetMatchResultUseCaseTest {
 
     @BeforeEach
     void setUp() {
-        useCase = new SetMatchResultUseCase(matchRepository, eventPublisher);
+        useCase = new SetMatchResultUseCase(matchRepository, eventPublisher, tournamentRepository);
+        var tournament = Tournament.create("Copa", null, LocalDate.now().plusDays(1), null, "42");
+        tournament.transitionTo(TournamentStatus.ACTIVE);
+        lenient().when(tournamentRepository.findById(1L)).thenReturn(Optional.of(tournament));
     }
 
     @Test

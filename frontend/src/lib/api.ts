@@ -7,6 +7,8 @@ import axios from "axios";
  * an individual service. That is the whole point of having a gateway.
  */
 export const TOKEN_STORAGE_KEY = "scoregrid.token";
+export const USER_STORAGE_KEY = "scoregrid.user";
+export const AUTH_EXPIRED_EVENT = "scoregrid.auth-expired";
 
 export const api = axios.create({
   baseURL: import.meta.env.VITE_API_BASE_URL ?? "http://localhost:8080",
@@ -27,6 +29,8 @@ api.interceptors.response.use(
     // An expired or missing token means one thing: log in again.
     if (error.response?.status === 401) {
       localStorage.removeItem(TOKEN_STORAGE_KEY);
+      localStorage.removeItem(USER_STORAGE_KEY);
+      window.dispatchEvent(new Event(AUTH_EXPIRED_EVENT));
       if (window.location.pathname !== "/login") {
         window.location.assign("/login");
       }

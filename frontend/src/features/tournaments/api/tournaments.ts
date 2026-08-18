@@ -14,8 +14,10 @@ import type {
   SetMatchResultInput,
   Team,
   CreateTeamInput,
+  UpdateTeamInput,
   EnrolmentStatus,
 } from "../types/tournament";
+import { isNotFoundError } from "../errors";
 
 // ── Tournaments ────────────────────────────────────────────────────────────
 
@@ -78,8 +80,9 @@ export async function getEnrolment(
       `/api/tournaments/${tournamentId}/participants/${userId}`,
     );
     return data;
-  } catch {
-    return null;
+  } catch (error) {
+    if (isNotFoundError(error)) return null;
+    throw error;
   }
 }
 
@@ -193,6 +196,14 @@ export async function listTeams(): Promise<Team[]> {
 
 export async function createTeam(input: CreateTeamInput): Promise<Team> {
   const { data } = await api.post<Team>("/api/teams", input);
+  return data;
+}
+
+export async function updateTeam(
+  id: string,
+  input: UpdateTeamInput,
+): Promise<Team> {
+  const { data } = await api.put<Team>(`/api/teams/${id}`, input);
   return data;
 }
 

@@ -57,7 +57,7 @@ class GroupController {
     @PreAuthorize("hasRole('ADMIN')")
     ResponseEntity<List<TeamResponse>> assignTeams(@PathVariable Long groupId,
                                                     @Valid @RequestBody AssignTeamsRequest request) {
-        var teamIds = request.teamIds().stream().map(Long::valueOf).toList();
+        var teamIds = request.teamIds().stream().map(value -> parseId(value, "teamId")).toList();
         var cmd = new AssignTeamsToGroup.Command(groupId, teamIds);
         var teams = assignTeamsToGroup.execute(cmd);
         var response = teams.stream().map(TeamResponse::from).toList();
@@ -69,5 +69,15 @@ class GroupController {
         var teams = getGroupTeams.execute(groupId);
         var response = teams.stream().map(TeamResponse::from).toList();
         return ResponseEntity.ok(response);
+    }
+
+    private static Long parseId(String value, String field) {
+        try {
+            return Long.valueOf(value);
+        } catch (NumberFormatException e) {
+            throw new com.scoregrid.tournament.shared.error.DomainException(
+                    com.scoregrid.tournament.shared.error.ErrorKind.VALIDATION,
+                    "VALIDATION_FAILED", field + " must be a numeric ID");
+        }
     }
 }

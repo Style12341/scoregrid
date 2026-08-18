@@ -9,7 +9,6 @@ import { TournamentStatusBadge, MatchStatusBadge, PredictionLockBadge } from "@/
 import { LoadingState, EmptyState, ErrorState } from "@/components/common/states";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Separator } from "@/components/ui/separator";
-import { toApiError } from "@/lib/api";
 import {
   getTournament,
   listGroups,
@@ -26,6 +25,7 @@ import type {
   Match,
   Team,
 } from "../types/tournament";
+import { apiErrorMessage } from "../errors";
 
 function formatDate(dateStr: string): string {
   return new Date(dateStr).toLocaleDateString("es-AR", {
@@ -37,8 +37,10 @@ function formatDate(dateStr: string): string {
   });
 }
 
-function formatDateOnly(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString("es-AR", {
+function formatDateOnly(dateStr: string | null): string {
+  if (!dateStr) return "Sin fecha";
+  const [year, month, day] = dateStr.split("-").map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString("es-AR", {
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -65,15 +67,12 @@ function GroupsTab({ tournamentId }: { tournamentId: string }) {
             getGroupTeams(group.id)
               .then((teams) => {
                 teamMap[group.id] = teams;
-              })
-              .catch(() => {
-                teamMap[group.id] = [];
               }),
           ),
         );
         setTeamsByGroup(teamMap);
       })
-      .catch(() => setError("No se pudieron cargar los grupos."))
+      .catch((error) => setError(apiErrorMessage(error, "No se pudieron cargar los grupos.")))
       .finally(() => setLoading(false));
   }, [tournamentId]);
 
@@ -111,7 +110,7 @@ function GroupsTab({ tournamentId }: { tournamentId: string }) {
                       key={team.id}
                       className="rounded-full border border-border bg-muted px-3 py-1 text-sm font-medium"
                     >
-                      {team.shortName}
+                      {team.shortName || team.name}
                     </span>
                   ))}
                 </div>
@@ -145,7 +144,7 @@ function PhasesTab({ tournamentId }: { tournamentId: string }) {
     setError(null);
     listPhases(tournamentId)
       .then(setPhases)
-      .catch(() => setError("No se pudieron cargar las fases."))
+      .catch((error) => setError(apiErrorMessage(error, "No se pudieron cargar las fases.")))
       .finally(() => setLoading(false));
   }, [tournamentId]);
 
@@ -201,7 +200,7 @@ function FixtureTab({ tournamentId }: { tournamentId: string }) {
     setError(null);
     listMatches(tournamentId, statusFilter || undefined)
       .then(setMatches)
-      .catch(() => setError("No se pudieron cargar los partidos."))
+      .catch((error) => setError(apiErrorMessage(error, "No se pudieron cargar los partidos.")))
       .finally(() => setLoading(false));
   }, [tournamentId, statusFilter]);
 
@@ -255,13 +254,13 @@ function FixtureTab({ tournamentId }: { tournamentId: string }) {
               </div>
 
               <div className="flex items-center justify-center gap-4 text-lg font-bold">
-                <span className="text-right flex-1">{match.homeTeam.shortName}</span>
+                 <span className="text-right flex-1">{match.homeTeam.shortName || match.homeTeam.name}</span>
                 <span className="text-muted-foreground text-base">
                   {match.homeScore !== null && match.awayScore !== null
                     ? `${match.homeScore} – ${match.awayScore}`
                     : "vs"}
                 </span>
-                <span className="flex-1">{match.awayTeam.shortName}</span>
+                 <span className="flex-1">{match.awayTeam.shortName || match.awayTeam.name}</span>
               </div>
 
               <Separator />
@@ -294,6 +293,8 @@ export function TournamentDetailPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [enrolled, setEnrolled] = useState(false);
+  const [enrolmentLoading, setEnrolmentLoading] = useState(false);
+  const [enrolmentError, setEnrolmentError] = useState<string | null>(null);
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
@@ -302,14 +303,27 @@ export function TournamentDetailPage() {
     if (!tournamentId) return;
     setLoading(true);
     setError(null);
+    setEnrolled(false);
+    setEnrolmentError(null);
+    setEnrolmentLoading(Boolean(user));
     getTournament(tournamentId)
-      .then((t) => {
+      .then(async (t) => {
         setTournament(t);
         if (user) {
-          getEnrolment(t.id, user.id).then((e) => setEnrolled(e !== null));
+          try {
+            const enrolment = await getEnrolment(t.id, user.id);
+            setEnrolled(enrolment !== null);
+          } catch (enrolmentRequestError) {
+            setEnrolmentError(apiErrorMessage(
+              enrolmentRequestError,
+              "No pudimos comprobar tu inscripción.",
+            ));
+          } finally {
+            setEnrolmentLoading(false);
+          }
         }
       })
-      .catch(() => setError("No se pudo cargar el torneo."))
+      .catch((requestError) => setError(apiErrorMessage(requestError, "No se pudo cargar el torneo.")))
       .finally(() => setLoading(false));
   }, [tournamentId, user, retry]);
 
@@ -324,8 +338,7 @@ export function TournamentDetailPage() {
       await joinTournament(tournamentId);
       setEnrolled(true);
     } catch (e) {
-      const apiErr = toApiError(e);
-      setJoinError(apiErr?.message ?? "No se pudo inscribir en el torneo.");
+      setJoinError(apiErrorMessage(e, "No se pudo inscribir en el torneo."));
     } finally {
       setJoining(false);
     }
@@ -341,7 +354,9 @@ export function TournamentDetailPage() {
     tournament.status === "ACTIVE" &&
     user &&
     user.roles.includes("PLAYER") &&
-    !enrolled;
+    !enrolled &&
+    !enrolmentLoading &&
+    !enrolmentError;
 
   return (
     <div className="flex flex-col gap-6">
@@ -380,6 +395,10 @@ export function TournamentDetailPage() {
                 <p className="text-sm font-bold text-destructive">{joinError}</p>
               )}
             </div>
+          )}
+
+          {enrolmentError && (
+            <p className="text-sm font-bold text-destructive">{enrolmentError}</p>
           )}
 
           {enrolled && (

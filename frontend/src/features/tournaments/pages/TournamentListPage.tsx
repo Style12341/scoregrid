@@ -11,6 +11,7 @@ import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { listTournaments } from "../api/tournaments";
 import type { Tournament, TournamentStatus } from "../types/tournament";
 import { TOURNAMENT_STATUS } from "../types/tournament";
+import { apiErrorMessage } from "../errors";
 
 const STATUS_FILTERS: { label: string; value: string | null }[] = [
   { label: "Todos", value: null },
@@ -19,8 +20,10 @@ const STATUS_FILTERS: { label: string; value: string | null }[] = [
   { label: "Finalizados", value: TOURNAMENT_STATUS.FINISHED },
 ];
 
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString("es-AR", {
+function formatDate(dateStr: string | null): string {
+  if (!dateStr) return "Sin fecha";
+  const [year, month, day] = dateStr.split("-").map(Number);
+  return new Date(year, month - 1, day).toLocaleDateString("es-AR", {
     day: "numeric",
     month: "short",
     year: "numeric",
@@ -64,19 +67,24 @@ export function TournamentListPage() {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [statusFilter, setStatusFilter] = useState<string | null>(null);
+  const [page, setPage] = useState(0);
+  const [totalPages, setTotalPages] = useState(0);
 
-  const load = (status?: string | null) => {
+  const load = (status?: string | null, pageNumber = page) => {
     setLoading(true);
     setError(null);
-    listTournaments(status ?? undefined, 0, 50)
-      .then((page) => setTournaments(page.content))
-      .catch(() => setError("No se pudieron cargar los torneos."))
+    listTournaments(status ?? undefined, pageNumber, 20)
+      .then((result) => {
+        setTournaments(result.content);
+        setTotalPages(result.totalPages);
+      })
+      .catch((requestError) => setError(apiErrorMessage(requestError, "No se pudieron cargar los torneos.")))
       .finally(() => setLoading(false));
   };
 
   useEffect(() => {
-    load(statusFilter);
-  }, [statusFilter]);
+    load(statusFilter, page);
+  }, [statusFilter, page]);
 
   if (error) {
     return (
@@ -92,7 +100,10 @@ export function TournamentListPage() {
           action={
             <Tabs
               value={statusFilter ?? "all"}
-              onValueChange={(v) => setStatusFilter(v === "all" ? null : v)}
+              onValueChange={(v) => {
+                setPage(0);
+                setStatusFilter(v === "all" ? null : v);
+              }}
             >
               <TabsList variant="pill">
                 {STATUS_FILTERS.map((f) => (
@@ -118,7 +129,10 @@ export function TournamentListPage() {
           }
           action={
             statusFilter ? (
-              <Button variant="secondary" onClick={() => setStatusFilter(null)}>
+               <Button variant="secondary" onClick={() => {
+                 setPage(0);
+                 setStatusFilter(null);
+               }}>
                 Mostrar todos
               </Button>
             ) : undefined
@@ -129,6 +143,30 @@ export function TournamentListPage() {
           {tournaments.map((t) => (
             <TournamentCard key={t.id} tournament={t} />
           ))}
+        </div>
+      )}
+
+      {totalPages > 1 && !loading && !error && (
+        <div className="flex items-center justify-between gap-3">
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={page === 0}
+            onClick={() => setPage((current) => current - 1)}
+          >
+            Anterior
+          </Button>
+          <span className="text-sm text-muted-foreground">
+            Página {page + 1} de {totalPages}
+          </span>
+          <Button
+            variant="secondary"
+            size="sm"
+            disabled={page + 1 >= totalPages}
+            onClick={() => setPage((current) => current + 1)}
+          >
+            Siguiente
+          </Button>
         </div>
       )}
     </div>

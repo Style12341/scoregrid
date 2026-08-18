@@ -61,7 +61,7 @@ class MatchControllerTest {
     @MockitoBean
     private SetMatchResult setMatchResult;
 
-    private static final Instant FUTURE = Instant.parse("2026-08-14T18:30:00Z");
+    private static final Instant FUTURE = Instant.now().plusSeconds(7200);
 
     private final TeamRef homeTeam = TeamRef.of(7L, "Argentina", "ARG");
     private final TeamRef awayTeam = TeamRef.of(8L, "Brazil", "BRA");

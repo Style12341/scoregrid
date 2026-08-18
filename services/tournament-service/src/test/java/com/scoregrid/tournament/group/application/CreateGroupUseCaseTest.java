@@ -6,6 +6,7 @@ import com.scoregrid.tournament.group.domain.port.out.GroupRepository;
 import com.scoregrid.tournament.shared.error.DomainException;
 import com.scoregrid.tournament.shared.error.ErrorKind;
 import com.scoregrid.tournament.tournament.domain.port.out.TournamentRepository;
+import com.scoregrid.tournament.tournament.domain.model.Tournament;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
@@ -36,7 +37,8 @@ class CreateGroupUseCaseTest {
 
     @Test
     void shouldCreateGroupSuccessfully() {
-        when(tournamentRepository.existsById(1L)).thenReturn(true);
+        when(tournamentRepository.findById(1L))
+                .thenReturn(java.util.Optional.of(Tournament.create("Copa", null, null, null, "42")));
         when(groupRepository.save(any())).thenAnswer(inv -> {
             Group g = inv.getArgument(0);
             g.setId(10L);
@@ -55,7 +57,7 @@ class CreateGroupUseCaseTest {
 
     @Test
     void shouldThrowNotFoundWhenTournamentMissing() {
-        when(tournamentRepository.existsById(999L)).thenReturn(false);
+        when(tournamentRepository.findById(999L)).thenReturn(java.util.Optional.empty());
 
         var cmd = new CreateGroup.Command(999L, "Grupo X", 0);
         assertThatThrownBy(() -> useCase.execute(cmd))

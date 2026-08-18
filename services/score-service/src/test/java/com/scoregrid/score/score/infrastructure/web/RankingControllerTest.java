@@ -12,6 +12,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
+import org.springframework.security.core.authority.SimpleGrantedAuthority;
 import org.springframework.test.context.TestPropertySource;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
@@ -98,10 +99,8 @@ class RankingControllerTest {
     @DisplayName("POST /api/rankings/recalculate/match/{id} requires ADMIN")
     void recalculateMatchRejectsPlayer() throws Exception {
         mockMvc.perform(post("/api/rankings/recalculate/match/m1")
-                        .with(jwt().jwt(j -> {
-                            j.subject("42");
-                            j.claim("roles", List.of("PLAYER"));
-                        }))
+                        .with(jwt().jwt(j -> j.subject("42"))
+                                .authorities(new SimpleGrantedAuthority("ROLE_PLAYER")))
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isForbidden());
     }
@@ -110,10 +109,8 @@ class RankingControllerTest {
     @DisplayName("POST /api/rankings/recalculate/match/{id} accepts ADMIN")
     void recalculateMatchAcceptsAdmin() throws Exception {
         mockMvc.perform(post("/api/rankings/recalculate/match/m1")
-                        .with(jwt().jwt(j -> {
-                            j.subject("42");
-                            j.claim("roles", List.of("ADMIN"));
-                        }))
+                        .with(jwt().jwt(j -> j.subject("42"))
+                                .authorities(new SimpleGrantedAuthority("ROLE_ADMIN")))
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isNoContent());
     }
@@ -122,10 +119,8 @@ class RankingControllerTest {
     @DisplayName("POST /api/rankings/recalculate/tournament/{id} requires ADMIN")
     void recalculateTournamentRejectsPlayer() throws Exception {
         mockMvc.perform(post("/api/rankings/recalculate/tournament/t1")
-                        .with(jwt().jwt(j -> {
-                            j.subject("42");
-                            j.claim("roles", List.of("PLAYER"));
-                        }))
+                        .with(jwt().jwt(j -> j.subject("42"))
+                                .authorities(new SimpleGrantedAuthority("ROLE_PLAYER")))
                         .contentType(MediaType.APPLICATION_JSON))
                 .andExpect(status().isForbidden());
     }

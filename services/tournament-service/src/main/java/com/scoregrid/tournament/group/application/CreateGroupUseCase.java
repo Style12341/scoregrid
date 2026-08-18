@@ -6,6 +6,7 @@ import com.scoregrid.tournament.group.domain.port.out.GroupRepository;
 import com.scoregrid.tournament.shared.error.DomainException;
 import com.scoregrid.tournament.shared.error.ErrorKind;
 import com.scoregrid.tournament.tournament.domain.port.out.TournamentRepository;
+import com.scoregrid.tournament.tournament.domain.model.TournamentStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -24,9 +25,13 @@ public class CreateGroupUseCase implements CreateGroup {
 
     @Override
     public Group execute(Command command) {
-        if (!tournamentRepository.existsById(command.tournamentId())) {
-            throw new DomainException(ErrorKind.NOT_FOUND, "NOT_FOUND",
-                    "Tournament not found: " + command.tournamentId());
+        var tournament = tournamentRepository.findById(command.tournamentId())
+                .orElseThrow(() -> new DomainException(ErrorKind.NOT_FOUND, "NOT_FOUND",
+                        "Tournament not found: " + command.tournamentId()));
+        if (tournament.getStatus() != TournamentStatus.DRAFT
+                && tournament.getStatus() != TournamentStatus.ACTIVE) {
+            throw new DomainException(ErrorKind.CONFLICT, "TOURNAMENT_NOT_ACTIVE",
+                    "Tournament is not configurable in state " + tournament.getStatus());
         }
         var group = Group.create(command.tournamentId(), command.name(), command.displayOrder());
         return groupRepository.save(group);
