@@ -70,7 +70,7 @@ Backend
 
 Platform
 - `compose.yaml` for the whole system: one Postgres and one MongoDB (each holding one database per service, with per-service logins), RabbitMQ, Eureka, five services, frontend. Health checks and `depends_on: condition: service_healthy`.
-- `infra/`: Prometheus scrape config, Grafana provisioning + one dashboard per service, Loki + Promtail for centralised JSON logs. All behind the `observability` Compose profile.
+- `infra/`: Prometheus scrape config, Grafana provisioning with a shared overview dashboard, Loki + Promtail for centralised JSON logs. All behind the `observability` Compose profile.
 - CI: build and test Eureka, all five services plus the frontend on every PR.
 
 Frontend
@@ -96,7 +96,7 @@ Backend — the largest single service in the system
 - Result loading (`PUT /api/matches/{id}/result`), which sets `FINISHED` and publishes `match.finished`.
 - Event publishing: `match.scheduled`, `match.updated`, `match.finished`.
 - Enrolment: `POST /tournaments/{id}/join` and the participants check Prediction Service depends on.
-- `ResultProvider` port plus the external-API adapter behind a Resilience4J circuit breaker and retry, feature-flagged off by default.
+- Manual result loading through `PUT /api/matches/{id}/result`. An external results provider is deliberately out of the current scope; Resilience4J is exercised by the Prediction/Score REST clients.
 
 Frontend
 - Tournament list with status filter.
@@ -105,7 +105,7 @@ Frontend
 
 **Why this shape:** `tournament-service` is roughly as large as the other two backend streams' services combined, so this stream gets no platform work and no cross-cutting responsibility. Its UI is the natural consumer of its own API.
 
-**Designated cut:** if this stream falls behind, the external `ResultProvider` adapter is the first thing to drop. Manual result loading is the primary path and covers every requirement on its own. Define the port anyway — the adapter can land later, or move to Stream C.
+**Designated cut:** external results-provider integration is out of scope for v1. Manual result loading is the guaranteed path and covers the TP requirement; the Resilience4J requirement is covered by the live service-to-service clients.
 
 ---
 
@@ -147,7 +147,7 @@ Frontend
 
 Deliberately not identical. B carries one oversized service and therefore no infrastructure; A carries the smallest services and therefore the platform and the shared UI foundation.
 
-**Rebalance levers, in order:** move the external `ResultProvider` adapter from B to C · move the admin panel screens from B to A · move the Rankings screens from A to C.
+**Rebalance levers, in order:** move the admin panel screens from B to A · move the Rankings screens from A to C.
 
 ---
 
@@ -198,7 +198,7 @@ Groups, phases, the full admin panel, all prediction and ranking screens, global
 
 ### M4 — Hardening and demo
 
-Circuit breakers verified by actually killing a container. DLQ behaviour verified by killing prediction-service while a match finishes. Observability profile up with real dashboards. Seed script for demo data. README verified by one of you following it on a clean checkout.
+Circuit breakers verified by actually killing a container. DLQ behaviour verified by killing prediction-service while a match finishes. Observability profile up with the provisioned overview dashboard. Demo flow documented and README verified by one of you following it on a clean checkout.
 
 ---
 

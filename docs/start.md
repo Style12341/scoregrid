@@ -281,11 +281,10 @@ services/tournament-service/
     │   ├── team/
     │   ├── group/
     │   ├── phase/
-    │   ├── match/
-    │   │   └── infrastructure/external/   ResultProviderAdapter (Resilience4J lives here)
+    │   ├── match/                          Match CRUD, results and events
     │   │
     │   └── shared/
-    │       ├── config/                    SecurityConfig, RabbitConfig, OpenApiConfig
+    │       ├── config/                    SecurityConfig, RabbitConfig, ResilienceConfig
     │       ├── error/                     GlobalExceptionHandler, ApiError
     │       └── security/                  CurrentUser resolver
     │
@@ -411,7 +410,7 @@ Prometheus, Grafana and Loki are behind the `observability` profile so day-to-da
 - Integration tests with Testcontainers for anything touching a real database or RabbitMQ.
 - The scoring rule table in [`contracts.md`](contracts.md#scoring-rule-v1) is a parameterised test. Copy it verbatim.
 
-**API docs.** `springdoc-openapi-starter-webmvc-ui` in each service; the gateway aggregates them at `/swagger-ui.html`. Add it manually — it is not an Initializr option.
+**API docs.** Generated OpenAPI is not part of the current scope. The service-boundary contract and endpoint reference live in [`contracts.md`](contracts.md); do not advertise a Swagger URL that is not provisioned.
 
 **Commits.** Conventional commits, scoped by service: `feat(tournament): add group team assignment`.
 
@@ -431,7 +430,7 @@ The platform and feature work are implemented. In place and verified:
 | `RabbitConfig` | full topology from [`contracts.md`](contracts.md#events--rabbitmq): exchange, DLX, both queues, both DLQs |
 | `application.yml` per service | ports, datasources, actuator probes, Prometheus, tracing, `docker` profile with JSON logging |
 | `compose.yaml` | 10 core containers, health-gated startup, `observability` profile |
-| `infra/` | Prometheus, Loki, Promtail, Grafana datasources; Postgres and MongoDB provisioning scripts |
+| `infra/` | Prometheus, Loki, Promtail, Grafana datasources and overview dashboard; Postgres and MongoDB provisioning scripts |
 | `frontend/` | Vite + React 19 + TS, axios client with JWT interceptor, auth context, route guard, route map |
 | Design system | Tailwind 4 + shadcn/ui restyled to the interface mock — layout shell, empty/error/loading states, `FormField`, status badges. See [`AGENTS.md`](../AGENTS.md#the-design-system) |
 | Frontend screens | Login, register, dashboard, rankings, tournaments, predictions and admin result flows |

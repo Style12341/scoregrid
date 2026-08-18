@@ -13,10 +13,3 @@ datasources:
     access: proxy
     url: http://loki:3100
     editable: true
-    jsonData:
-      # Click a traceId in a log line and jump straight to the trace.
-      derivedFields:
-        - datasourceUid: ""
-          matcherRegex: '"traceId":"(\w+)"'
-          name: TraceID
-          url: "$${__value.raw}"

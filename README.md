@@ -102,7 +102,6 @@ Storage is one Postgres container and one MongoDB container, each holding one da
 |------|-------|
 | Frontend | http://localhost:3000 |
 | API gateway | http://localhost:8080 |
-| API docs (aggregated) | http://localhost:8080/swagger-ui.html |
 | RabbitMQ management | http://localhost:15672 |
 
 With the observability stack:
@@ -165,6 +164,7 @@ Services are organised hexagonally, by feature first and layer second — open a
 | [`docs/start.md`](docs/start.md) | You are setting up the repository, generating a service, or wondering which Spring dependency to add |
 | [`docs/contracts.md`](docs/contracts.md) | **Before writing any code that crosses a service boundary.** Frozen — changes need all three developers to approve |
 | [`docs/workstreams.md`](docs/workstreams.md) | You want to know who owns what and what you can build right now without waiting |
+| [`docs/demo.md`](docs/demo.md) | You are preparing the reproducible end-to-end demonstration |
 | [`AGENTS.md`](AGENTS.md) | You are pointing an AI coding agent at this repository |
 
 ---
