@@ -155,6 +155,9 @@ services:
       SPRING_DATASOURCE_USERNAME: ${POSTGRES_AUTH_USER:-auth_service}
       SPRING_DATASOURCE_PASSWORD: ${POSTGRES_AUTH_PASSWORD:?set POSTGRES_AUTH_PASSWORD in .env}
       SCOREGRID_JWT_TTL: ${SCOREGRID_JWT_TTL:-PT24H}
+      SCOREGRID_ADMIN_USERNAME: ${SCOREGRID_ADMIN_USERNAME:-admin}
+      SCOREGRID_ADMIN_EMAIL: ${SCOREGRID_ADMIN_EMAIL:-admin@scoregrid.local}
+      SCOREGRID_ADMIN_PASSWORD: ${SCOREGRID_ADMIN_PASSWORD:?set SCOREGRID_ADMIN_PASSWORD in .env}
     depends_on:
       eureka-server: {condition: service_healthy}
       postgres: {condition: service_healthy}

@@ -25,6 +25,15 @@ class UserTest {
     }
 
     @Test
+    @DisplayName("the bootstrap account has both PLAYER and ADMIN roles")
+    void newAdminAccountHasBothRoles() {
+        User user = User.newAdminAccount("admin", "admin@scoregrid.local", "hashed");
+
+        assertThat(user.id()).isNull();
+        assertThat(user.roles()).containsExactlyInAnyOrder(Role.PLAYER, Role.ADMIN);
+    }
+
+    @Test
     @DisplayName("ids cross the boundary as strings")
     void idIsExposedAsString() {
         User user = User.newAccount("maxi", "maxi@example.com", "hashed").withId(42L);

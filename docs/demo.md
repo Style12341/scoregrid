@@ -7,7 +7,7 @@ uses only local Docker services and does not require secrets in the repository.
 
 ```bash
 cp .env.example .env
-# Set SCOREGRID_JWT_SECRET and the database passwords in .env.
+# Set SCOREGRID_JWT_SECRET, SCOREGRID_ADMIN_PASSWORD and the database passwords in .env.
 docker compose up -d --build
 docker compose --profile observability up -d
 docker compose ps
@@ -18,24 +18,16 @@ and the five business services at <http://localhost:8761>.
 
 ## Prepare Users
 
-Register two users from the frontend at <http://localhost:3000>: one called
-`admin` and one participant. New accounts are `PLAYER` by default. Promote the
-admin account in the local Auth database with the following command, replacing
-the username if necessary:
+The Auth Service creates the initial administrator automatically on startup,
+using `SCOREGRID_ADMIN_USERNAME`, `SCOREGRID_ADMIN_EMAIL` and
+`SCOREGRID_ADMIN_PASSWORD` from `.env`. The account receives both `PLAYER` and
+`ADMIN` roles, so the values configured in `.env` are the credentials for the
+first login. Register one additional participant from the frontend at
+<http://localhost:3000>.
 
-```bash
-docker compose exec -T postgres sh -c \
-  'PGPASSWORD="$POSTGRES_PASSWORD" psql -v ON_ERROR_STOP=1 -U "$POSTGRES_USER" -d "$POSTGRES_AUTH_DB"' <<'SQL'
-INSERT INTO user_roles (user_id, role_id)
-SELECT u.id, r.id
-FROM users u
-JOIN roles r ON r.name = 'ADMIN'
-WHERE u.username = 'admin'
-ON CONFLICT DO NOTHING;
-SQL
-```
-
-Log in again as `admin` so the new JWT contains the `ADMIN` role.
+If the database already contains the configured admin username, startup keeps
+its existing password and grants the two required roles; it never resets that
+password.
 
 ## Vertical Slice
 

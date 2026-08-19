@@ -41,6 +41,11 @@ public final class User {
         return new User(null, username, email, passwordHash, Set.of(Role.PLAYER));
     }
 
+    /** The configured bootstrap account can participate as well as administer. */
+    public static User newAdminAccount(String username, String email, String passwordHash) {
+        return new User(null, username, email, passwordHash, Set.of(Role.PLAYER, Role.ADMIN));
+    }
+
     public User withId(Long assignedId) {
         return new User(assignedId, username, email, passwordHash, roles);
     }

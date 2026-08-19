@@ -45,6 +45,12 @@ scoregrid:
     secret: ${SCOREGRID_JWT_SECRET:dev-only-insecure-secret-do-not-deploy-anywhere-real}
     issuer: ${SCOREGRID_JWT_ISSUER:scoregrid-auth}
     ttl: ${SCOREGRID_JWT_TTL:PT24H}
+  admin:
+    # The password is deliberately not committed. It is required when the
+    # initial account has to be created and is ignored for an existing account.
+    username: ${SCOREGRID_ADMIN_USERNAME:admin}
+    email: ${SCOREGRID_ADMIN_EMAIL:admin@scoregrid.local}
+    password: ${SCOREGRID_ADMIN_PASSWORD:}
 
 management:
   endpoints:
