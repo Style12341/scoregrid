@@ -129,7 +129,9 @@ class MatchTest {
         void shouldRescheduleFromPostponed() {
             var match = postponedMatch();
             var newTime = Instant.parse("2026-08-20T20:00:00Z");
-            match.reschedule(newTime);
+            // The fixed clock, not reschedule(Instant): that one compares with
+            // Instant.now() and turned this test red once 2026-08-20 passed.
+            match.reschedule(newTime, NOW);
             assertThat(match.getStatus()).isEqualTo(MatchStatus.SCHEDULED);
             assertThat(match.getStartTime()).isEqualTo(newTime);
         }

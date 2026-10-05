@@ -23,8 +23,15 @@ public class UpdateTournamentUseCase implements UpdateTournament {
         var tournament = tournamentRepository.findById(command.tournamentId())
                 .orElseThrow(() -> new DomainException(ErrorKind.NOT_FOUND, "NOT_FOUND",
                         "Tournament not found: " + command.tournamentId()));
-        tournament.update(command.name(), command.description(),
-                command.startDate(), command.endDate());
+        try {
+            tournament.update(command.name(), command.description(),
+                    command.startDate(), command.endDate());
+        } catch (IllegalStateException e) {
+            // FINISHED and CANCELLED are terminal. Same code as a refused
+            // status transition (TransitionTournamentStatusUseCase): a wrong
+            // state is a 409, not the 500 an uncaught exception becomes.
+            throw new DomainException(ErrorKind.CONFLICT, "TOURNAMENT_NOT_ACTIVE", e.getMessage());
+        }
         return tournamentRepository.save(tournament);
     }
 }

@@ -4,6 +4,8 @@ import com.scoregrid.tournament.match.domain.model.Match;
 import com.scoregrid.tournament.match.domain.port.out.MatchEventPublisher;
 import com.scoregrid.tournament.shared.config.RabbitConfig;
 import com.scoregrid.tournament.tournament.domain.model.TournamentStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.amqp.rabbit.core.RabbitTemplate;
 import org.springframework.stereotype.Component;
 
@@ -14,6 +16,8 @@ import java.util.UUID;
 
 @Component
 class MatchEventPublisherAdapter implements MatchEventPublisher {
+
+    private static final Logger log = LoggerFactory.getLogger(MatchEventPublisherAdapter.class);
 
     private final RabbitTemplate rabbitTemplate;
 
@@ -36,14 +40,22 @@ class MatchEventPublisherAdapter implements MatchEventPublisher {
         send("match.finished", finishedPayload(match));
     }
 
+    /**
+     * One INFO line per event, so the demo (docs/demo.md, Vertical Slice step
+     * 6) can show the publish next to score-service's consume. The eventId is
+     * what consumers deduplicate on, so it is the key for following one event
+     * across the logs.
+     */
     private void send(String routingKey, Map<String, Object> payload) {
+        String eventId = UUID.randomUUID().toString();
         var envelope = Map.of(
-                "eventId", UUID.randomUUID().toString(),
+                "eventId", eventId,
                 "eventType", routingKey,
                 "occurredAt", Instant.now().toString(),
                 "version", 1,
                 "payload", payload);
         rabbitTemplate.convertAndSend(RabbitConfig.EXCHANGE, routingKey, envelope);
+        log.info("Published {} matchId={} eventId={}", routingKey, payload.get("matchId"), eventId);
     }
 
     private Map<String, Object> scheduledPayload(Match match, TournamentStatus tournamentStatus) {

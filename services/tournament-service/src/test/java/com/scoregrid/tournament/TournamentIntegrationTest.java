@@ -19,6 +19,7 @@ import static org.springframework.security.test.web.servlet.request.SecurityMock
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
@@ -30,7 +31,7 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
  * which is required because {@link com.scoregrid.tournament.shared.security.CurrentUser}
  * reads the user ID from the JWT {@code sub} claim directly.
  */
-@SpringBootTest
+@SpringBootTest(properties = "eureka.client.enabled=false")
 @AutoConfigureMockMvc
 @Import(TestcontainersConfiguration.class)
 class TournamentIntegrationTest {
@@ -184,5 +185,37 @@ class TournamentIntegrationTest {
                         .with(jwtWith("99", "PLAYER")))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.length()").value(2));
+    }
+
+    // -- Terminal states ----------------------------------------------------------
+
+    @Test
+    void shouldAnswer409WhenUpdatingACancelledTournament() throws Exception {
+        var location = mockMvc.perform(post("/api/tournaments")
+                        .with(jwtWith("42", "ADMIN")).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"Copa Cancelada","startDate":"2027-06-01","endDate":"2027-07-01"}"""))
+                .andExpect(status().isCreated())
+                .andReturn().getResponse().getHeader("Location");
+        assert location != null;
+        var tournamentId = location.substring(location.lastIndexOf('/') + 1);
+
+        mockMvc.perform(patch("/api/tournaments/" + tournamentId + "/status")
+                        .with(jwtWith("42", "ADMIN")).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("{\"status\":\"CANCELLED\"}"))
+                .andExpect(status().isOk());
+
+        // Used to be an uncaught IllegalStateException: 500 INTERNAL_ERROR.
+        mockMvc.perform(put("/api/tournaments/" + tournamentId)
+                        .with(jwtWith("42", "ADMIN")).with(csrf())
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"name":"Otro nombre"}"""))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.status").value(409))
+                .andExpect(jsonPath("$.error").value("TOURNAMENT_NOT_ACTIVE"))
+                .andExpect(jsonPath("$.path").value("/api/tournaments/" + tournamentId));
     }
 }
