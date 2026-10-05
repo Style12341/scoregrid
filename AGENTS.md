@@ -34,6 +34,7 @@ The application is implemented end to end and the full Compose stack is verified
 - `compose.yaml` — one Postgres and one MongoDB, each with one database and one login per service, provisioned from `infra/postgres/init` and `infra/mongo/init`; RabbitMQ; Eureka; five services; frontend. `infra/` also holds the observability config.
 - Git repository and `.github/workflows/ci.yml` — Eureka plus five services in a matrix, frontend lint + build, compose validation on both profiles.
 - Frontend: axios client, auth context, route guard, route map, and the **design system** (Tailwind v4 + shadcn/ui restyled to the mock) — see §8.
+- Resilience and failover: every gateway route has a breaker with a `503 DOWNSTREAM_UNAVAILABLE` fallback, GET-only retry onto another replica when the connection cannot be opened, and proxy timeouts; tournament-service runs two replicas by default and shuts down immediately, so a stopping replica refuses connections at once and the retry moves on; the internal clients prediction→tournament and score→prediction retry each request through the LoadBalancer under connect/read timeouts and a fixed time limit, and score→auth has the same timeouts and falls back to user ids. `scripts/failover-demo.sh` drives it live, `scripts/smoke.sh` checks the wiring — see [`docs/demo.md`](docs/demo.md#failover). prediction-service runs one replica only (its match-cache queue is shared; see there).
 
 **Stream C — done** (`prediction-service`, `score-service`):
 - `prediction-service`: full hexagonal slice — domain model, ports, the six-step validation chain, Mongo persistence with the unique index on `(userId, matchId)`, in-memory match cache fed by `match.scheduled` / `match.updated`, `RestClient` fallback to tournament-service behind a circuit breaker, six controller endpoints, event publisher.
@@ -101,11 +102,15 @@ All three fail **silently** — no compile error, no warning. Verified against t
 
 **Gateway routes live under `spring.cloud.gateway.server.webmvc.routes`.** Not `spring.cloud.gateway.routes`, not `spring.cloud.gateway.mvc.routes`. The old forms are ignored and the gateway routes nothing without complaining.
 
-**Resilience4J has no annotations and no YAML instances here.** `spring-cloud-starter-circuitbreaker-resilience4j` brings only `resilience4j-circuitbreaker` and `resilience4j-timelimiter` — *not* `resilience4j-spring-boot`. So:
-- `resilience4j.circuitbreaker.instances.*` in YAML does not bind. Silent no-op.
-- `@CircuitBreaker` / `@Retry` are not on the classpath.
-- Configure via `Customizer<Resilience4JCircuitBreakerFactory>` beans; call through `CircuitBreakerFactory`. The pattern is already in each `shared/config/ResilienceConfig.java`.
-- Retry needs an explicit `resilience4j-retry` dependency or a `RestClient` interceptor.
+**Resilience4J: the time limiter comes only from a `TimeLimiterRegistry` bean.** `spring-cloud-circuitbreaker-resilience4j` 5.0.2 does bring `resilience4j-spring-boot3` 2.3.0 (compile scope), so do not reason from "there is no Boot integration". What bites:
+- A `timeLimiterConfig(...)` passed through `configure`/`configureDefault` is **ignored**. `Resilience4JCircuitBreakerFactory` resolves the limiter from the `TimeLimiterRegistry` only (by id, then group, then its default), so every breaker silently runs on Resilience4J's 1 s default. That 1 s cut prediction→tournament failover short. The gateway's, prediction's and score's `ResilienceConfig` each define a `TimeLimiterRegistry` bean, which replaces the auto-configured one; `circuitBreakerConfig(...)` in the customizers does apply. The limit is a constant sized from that service's HTTP client timeouts (the arithmetic is in the comment): change them together.
+- `@CircuitBreaker` / `@Retry` compile (the annotations jar comes along) but nothing applies them: AspectJ is not on the classpath. Silent no-op. Call through `CircuitBreakerFactory`.
+- Keep breaker, retry and limiter in each service's `ResilienceConfig` (gateway: `config/`; the others: `shared/config/`), not in `resilience4j.*` YAML: one place holds the timing budget.
+- Retry is the explicit `resilience4j-retry` dependency. Retry each HTTP request, not a whole use case: each attempt is a new request through the `@LoadBalanced` client, so it can land on another replica.
+
+**The gateway's stock `Retry` filter cannot do "GET only, when the connection could not be opened".** In Gateway Server WebMvc 5.0.2 the Spring Framework implementation applies `methods` only to status-based retries (a POST that hit a read timeout is replayed) and matches only the outermost exception, where a refused connect and a read timeout are the same `ResourceAccessException`; the spring-retry one never retries exceptions. Routes use `RetryReads` instead — see `services/api-gateway/.../filter/ReadRetryFilterFunctions.java`.
+
+**HTTP client timeouts have different names per service.** The gateway's are `spring.http.clients.connect-timeout` and `spring.http.clients.read-timeout` (Boot 4; `spring.http.client.*`, singular, is the deprecated 3.x namespace); they bind because the gateway starter brings `spring-boot-restclient`. prediction-service and score-service do not have that module, so `spring.http.clients.*` binds to nothing there: their timeouts are `scoregrid.clients.connect-timeout` / `read-timeout`, applied to an explicit request factory in `ClientConfig`. Without one, `RestClient.builder()` picks Apache HttpClient 5 (via the Eureka client): a 3-minute connect timeout and no response timeout.
 
 **Spring AMQP: use `JacksonJsonMessageConverter`,** not `Jackson2JsonMessageConverter`. Boot 4 ships Jackson 3; the `Jackson2` class is the legacy one.
 
@@ -204,6 +209,10 @@ docker compose down -v && docker compose up -d postgres mongodb
 # Frontend
 cd frontend && npm run dev         # :5173
 cd frontend && npm run build
+
+# Local stack checks (refuse anything but localhost and the local Docker daemon)
+scripts/smoke.sh                   # read-only: containers healthy, Eureka, 401 envelope, Prometheus targets
+scripts/failover-demo.sh           # stops and kills replicas to show failover; no argument prints its usage
 ```
 
 Testcontainers needs Docker running. On Windows the Maven wrapper needs `JAVA_HOME` set to a JDK (not a JRE).
@@ -227,6 +236,7 @@ Work is split three ways ([`docs/workstreams.md`](docs/workstreams.md)). Editing
 | `services/tournament-service/**` | **Paggi** (Stream B) |
 | `services/prediction-service/**`, `services/score-service/**` | **Werlen** (Stream C) |
 | `compose.yaml`, `infra/**`, `.env.example`, `.github/**` | **Bernard** — ask first |
+| `scripts/**` | **Bernard** — ask first |
 | `frontend/src/App.tsx`, `frontend/src/lib/**`, `frontend/src/auth/**` | **Bernard** — shared routing and client, ask first |
 | `frontend/src/components/**`, `frontend/src/index.css` | **Bernard** — the design system. **Import it; do not edit it.** Need a variant that does not exist? Ask, and it gets added once for all three. |
 | `frontend/src/features/<area>/**` | The stream owning that area |

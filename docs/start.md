@@ -142,20 +142,20 @@ spring.cloud.gateway.server.webmvc.routes
 
 Not `spring.cloud.gateway.routes` (Gateway 3.x) and not `spring.cloud.gateway.mvc.routes` (Gateway 4.x). Both older forms are simply ignored — the gateway starts happily and routes nothing. If a request through `:8080` 404s while the service answers directly on its own port, this is why.
 
-### 2. Resilience4J: no annotations, no YAML instances
+### 2. Resilience4J: the time limiter only comes from a `TimeLimiterRegistry` bean
 
-`spring-cloud-starter-circuitbreaker-resilience4j` pulls in **only** `resilience4j-circuitbreaker` and `resilience4j-timelimiter`. It does **not** pull in `resilience4j-spring-boot`. Consequences:
+`spring-cloud-circuitbreaker-resilience4j` 5.0.2 brings `resilience4j-spring-boot3` 2.3.0, but that does not make the obvious things work:
 
 | What you might reach for | Reality |
 |--------------------------|---------|
-| `resilience4j.circuitbreaker.instances.*` in `application.yml` | Does not bind. Silent no-op. |
-| `@CircuitBreaker`, `@Retry` annotations | Not on the classpath. |
-| Configuring instances | `Customizer<Resilience4JCircuitBreakerFactory>` beans, in Java |
+| `.timeLimiterConfig(...)` in a `Customizer<Resilience4JCircuitBreakerFactory>` | Ignored. The factory reads the limiter only from the `TimeLimiterRegistry`, so every breaker runs on Resilience4J's 1 s default. Define a `TimeLimiterRegistry` bean. |
+| `@CircuitBreaker`, `@Retry` annotations | Compile, but no AspectJ on the classpath applies them. Silent no-op. |
+| Breaker settings | `circuitBreakerConfig(...)` in `Customizer<Resilience4JCircuitBreakerFactory>` beans, in Java |
 | Calling through a breaker | Inject `CircuitBreakerFactory` |
 
-See `shared/config/ResilienceConfig.java` in tournament, prediction and score — the pattern is already set up with the named instances (`resultsProvider`, `tournamentClient`, `predictionClient`).
+See each service's `ResilienceConfig` (gateway: `config/`; prediction and score: `shared/config/`), and AGENTS.md §5 for the client timeouts the limiter is sized from.
 
-**Retry is not included either.** Add `io.github.resilience4j:resilience4j-retry` explicitly, or use a `RestClient` request interceptor. Whichever you pick, all three services do it the same way — agree it once.
+**Retry is not included either.** prediction and score add `io.github.resilience4j:resilience4j-retry` explicitly and retry each HTTP request through the `@LoadBalanced` client, so a retry can land on another replica.
 
 ### 3. Spring AMQP: `JacksonJsonMessageConverter`, not `Jackson2JsonMessageConverter`
 
@@ -386,7 +386,7 @@ RESULTS_PROVIDER_API_KEY=
 
 ```bash
 docker compose up -d postgres mongodb rabbitmq  # infra only, ~400 MB
-docker compose up -d                            # 10 containers, ~1.6 GB
+docker compose up -d                            # 11 containers (tournament-service x2), ~2.9 GB after a rehearsal
 docker compose --profile observability up -d    # + Prometheus, Grafana, Loki, Promtail
 ```
 
@@ -429,7 +429,7 @@ The platform and feature work are implemented. In place and verified:
 | `ResilienceConfig` | tournament, prediction, score — named circuit breaker instances |
 | `RabbitConfig` | full topology from [`contracts.md`](contracts.md#events--rabbitmq): exchange, DLX, both queues, both DLQs |
 | `application.yml` per service | ports, datasources, actuator probes, Prometheus, tracing, `docker` profile with JSON logging |
-| `compose.yaml` | 10 core containers, health-gated startup, `observability` profile |
+| `compose.yaml` | 11 core containers (tournament-service x2), health-gated startup, `observability` profile |
 | `infra/` | Prometheus, Loki, Promtail, Grafana datasources and overview dashboard; Postgres and MongoDB provisioning scripts |
 | `frontend/` | Vite + React 19 + TS, axios client with JWT interceptor, auth context, route guard, route map |
 | Design system | Tailwind 4 + shadcn/ui restyled to the interface mock — layout shell, empty/error/loading states, `FormField`, status badges. See [`AGENTS.md`](../AGENTS.md#the-design-system) |
