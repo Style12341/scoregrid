@@ -6,7 +6,8 @@ name: scoregrid
 #   docker compose up -d postgres mongodb rabbitmq  infra only — the usual case
 #                                                   when running services from
 #                                                   the IDE or ./mvnw
-#   docker compose up -d --build                    whole system (10 containers)
+#   docker compose up -d --build                    whole system (11 containers:
+#                                                   tournament-service runs 2)
 #   docker compose --profile observability up -d    + Prometheus, Grafana, Loki
 #
 # Storage is one Postgres and one MongoDB, each holding one database per
@@ -131,6 +132,17 @@ services:
       start_period: 30s
 
   # ══ Services ═══════════════════════════════════════════════════════════════
+  #
+  # The four business services have no container_name and publish no host
+  # port, so they scale. Every replica registers in Eureka under its own
+  # instance id (container hostname) and IP, and the gateway load-balances
+  # across them. A fixed container_name allows exactly one container, so it
+  # stays only on the singletons: databases, broker, eureka-server, api-gateway
+  # and frontend publish host ports that two replicas could not share anyway.
+  #
+  # tournament-service runs two replicas by default (deploy.replicas), so a
+  # plain "docker compose up -d" keeps failover available. prediction-service
+  # stays at one: see docs/demo.md#failover.
 
   eureka-server:
     build: ./services/eureka-server
@@ -140,7 +152,9 @@ services:
     environment:
       TZ: UTC
       SPRING_PROFILES_ACTIVE: docker
-    ports: ["8761:8761"]
+    # Loopback only: Eureka has no authentication, and Prometheus scrapes
+    # whatever registers in it.
+    ports: ["127.0.0.1:8761:8761"]
     healthcheck:
       <<: *healthcheck-defaults
       test: ["CMD", "wget", "-qO-", "http://localhost:8761/actuator/health/readiness"]
@@ -148,7 +162,6 @@ services:
   auth-service:
     <<: *service-defaults
     build: ./services/auth-service
-    container_name: sg-auth-service
     environment:
       <<: *service-env
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_AUTH_DB:-scoregrid_auth}
@@ -168,7 +181,8 @@ services:
   tournament-service:
     <<: *service-defaults
     build: ./services/tournament-service
-    container_name: sg-tournament-service
+    deploy:
+      replicas: 2
     environment:
       <<: *service-env
       SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/${POSTGRES_TOURNAMENT_DB:-scoregrid_tournament}
@@ -191,7 +205,6 @@ services:
   prediction-service:
     <<: *service-defaults
     build: ./services/prediction-service
-    container_name: sg-prediction-service
     environment:
       <<: *service-env
       # authSource is the service's own database, not admin — the user was
@@ -211,7 +224,6 @@ services:
   score-service:
     <<: *service-defaults
     build: ./services/score-service
-    container_name: sg-score-service
     environment:
       <<: *service-env
       SPRING_MONGODB_URI: mongodb://${MONGO_SCORE_USER:-score_service}:${MONGO_SCORE_PASSWORD:?set MONGO_SCORE_PASSWORD in .env}@mongodb:27017/${MONGO_SCORE_DB:-scoregrid_score}?authSource=${MONGO_SCORE_DB:-scoregrid_score}
@@ -257,20 +269,25 @@ services:
       api-gateway: {condition: service_healthy}
 
   # ══ Observability — profile: observability ═════════════════════════════════
+  #
+  # Pinned to the exact versions verified with this stack (same digests that
+  # were running as ":latest"), so a fresh pull before a demo cannot change
+  # what was rehearsed.
 
   prometheus:
-    image: prom/prometheus:latest
+    image: prom/prometheus:v3.15.0
     container_name: sg-prometheus
     profiles: [observability]
     restart: unless-stopped
     networks: [scoregrid]
-    ports: ["9090:9090"]
+    # Loopback only, like eureka-server: no authentication in front of it.
+    ports: ["127.0.0.1:9090:9090"]
     volumes:
       - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
       - prometheusdata:/prometheus
 
   loki:
-    image: grafana/loki:latest
+    image: grafana/loki:3.7.8
     container_name: sg-loki
     profiles: [observability]
     restart: unless-stopped
@@ -282,7 +299,7 @@ services:
       - lokidata:/loki
 
   promtail:
-    image: grafana/promtail:latest
+    image: grafana/promtail:3.6.8
     container_name: sg-promtail
     profiles: [observability]
     restart: unless-stopped
@@ -295,7 +312,7 @@ services:
     depends_on: [loki]
 
   grafana:
-    image: grafana/grafana:latest
+    image: grafana/grafana:13.2.3
     container_name: sg-grafana
     profiles: [observability]
     restart: unless-stopped

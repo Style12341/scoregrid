@@ -15,7 +15,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 @Import(TestcontainersConfiguration.class)
 @SpringBootTest
-@TestPropertySource(properties = "scoregrid.admin.password=correct-horse-battery")
+@TestPropertySource(properties = {"scoregrid.admin.password=correct-horse-battery", "eureka.client.enabled=false"})
 class AuthServiceApplicationTests {
 
 	@Autowired

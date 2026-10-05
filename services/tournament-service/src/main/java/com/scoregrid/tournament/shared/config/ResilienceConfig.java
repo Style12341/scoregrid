@@ -1,7 +1,6 @@
 package com.scoregrid.tournament.shared.config;
 
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
-import io.github.resilience4j.timelimiter.TimeLimiterConfig;
 import org.springframework.cloud.circuitbreaker.resilience4j.Resilience4JCircuitBreakerFactory;
 import org.springframework.cloud.circuitbreaker.resilience4j.Resilience4JConfigBuilder;
 import org.springframework.cloud.client.circuitbreaker.Customizer;
@@ -11,24 +10,20 @@ import org.springframework.context.annotation.Configuration;
 import java.time.Duration;
 
 /**
- * Circuit breakers for this service's outbound calls.
+ * Circuit breakers for this service's outbound calls. Nothing calls one yet:
+ * {@code resultsProvider} is reserved for the external results provider,
+ * which is off by default.
  *
- * <p>IMPORTANT — read before adding resilience config anywhere else:
- * spring-cloud-starter-circuitbreaker-resilience4j pulls in ONLY
- * resilience4j-circuitbreaker and resilience4j-timelimiter. It does NOT pull in
- * resilience4j-spring-boot. That means:
- * <ul>
- *   <li>The {@code resilience4j.circuitbreaker.instances.*} YAML namespace does
- *       NOT bind. Configuring it in application.yml is a silent no-op.</li>
- *   <li>The {@code @CircuitBreaker} / {@code @Retry} annotations are NOT
- *       available.</li>
- *   <li>Instances are configured here, in Java, and used through
- *       {@code CircuitBreakerFactory}.</li>
- * </ul>
- *
- * <p>Retry needs an explicit {@code io.github.resilience4j:resilience4j-retry}
- * dependency, or a RestClient request interceptor. Decide once and do it the
- * same way in every service — see docs/contracts.md.
+ * <p>Read AGENTS.md §5 before adding resilience config anywhere else. In
+ * short: configure breakers here, in Java, and call them through
+ * {@code CircuitBreakerFactory}; {@code @CircuitBreaker} / {@code @Retry}
+ * compile but nothing applies them. A {@code timeLimiterConfig(...)} in these
+ * customizers is ignored: Spring Cloud CircuitBreaker 5.0.2 takes the time
+ * limiter only from the TimeLimiterRegistry, so every breaker here runs on
+ * Resilience4J's 1 s default until this class defines a
+ * {@code TimeLimiterRegistry} bean the way prediction-service's
+ * ResilienceConfig does. Add it together with the first real caller, sized
+ * from that caller's HTTP client timeouts.
  */
 @Configuration
 public class ResilienceConfig {
@@ -46,9 +41,6 @@ public class ResilienceConfig {
                         .waitDurationInOpenState(Duration.ofSeconds(10))
                         .permittedNumberOfCallsInHalfOpenState(5)
                         .build())
-                .timeLimiterConfig(TimeLimiterConfig.custom()
-                        .timeoutDuration(Duration.ofSeconds(3))
-                        .build())
                 .build());
     }
 
@@ -60,9 +52,6 @@ public class ResilienceConfig {
                         .minimumNumberOfCalls(10)
                         .failureRateThreshold(50f)
                         .waitDurationInOpenState(Duration.ofSeconds(15))
-                        .build())
-                .timeLimiterConfig(TimeLimiterConfig.custom()
-                        .timeoutDuration(Duration.ofSeconds(3))
                         .build()), RESULTS_PROVIDER);
     }
 }

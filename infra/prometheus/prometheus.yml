@@ -5,19 +5,32 @@ global:
 scrape_configs:
   - job_name: scoregrid-services
     metrics_path: /actuator/prometheus
+    # The gateway and business services are discovered from Eureka, so every
+    # replica is scraped and a scaled-out service needs no edit here. A static
+    # "tournament-service:8082" target would hit one replica chosen by Docker
+    # DNS and silently miss the others.
+    eureka_sd_configs:
+      - server: http://eureka-server:8761/eureka
+        refresh_interval: 10s
+    # eureka-server does not register with itself.
     static_configs:
-      - targets: ["api-gateway:8080"]
-        labels: {service: api-gateway}
-      - targets: ["auth-service:8081"]
-        labels: {service: auth-service}
-      - targets: ["tournament-service:8082"]
-        labels: {service: tournament-service}
-      - targets: ["prediction-service:8083"]
-        labels: {service: prediction-service}
-      - targets: ["score-service:8084"]
-        labels: {service: score-service}
       - targets: ["eureka-server:8761"]
         labels: {service: eureka-server}
+    relabel_configs:
+      # The Grafana dashboards group by "service" with the lowercase service
+      # name; Eureka's app name is uppercase, its VIP address is not.
+      - source_labels: [__meta_eureka_app_instance_vip_address]
+        regex: (.+)
+        target_label: service
+      # Scrape the registered IP, the address the gateway uses too.
+      - source_labels: [__meta_eureka_app_instance_ip_addr, __meta_eureka_app_instance_port]
+        regex: (.+);(.+)
+        target_label: __address__
+        replacement: $1:$2
+      # One series per replica, named like Eureka's instance id.
+      - source_labels: [__meta_eureka_app_instance_id]
+        regex: (.+)
+        target_label: instance
 
   - job_name: prometheus
     static_configs:
