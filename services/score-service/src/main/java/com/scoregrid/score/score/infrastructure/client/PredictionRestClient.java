@@ -11,6 +11,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.cloud.client.circuitbreaker.CircuitBreaker;
 import org.springframework.cloud.client.circuitbreaker.CircuitBreakerFactory;
 import org.springframework.cloud.client.loadbalancer.LoadBalanced;
+import org.springframework.core.NestedExceptionUtils;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -45,7 +46,7 @@ class PredictionRestClient implements PredictionClientPort {
 
     @Override
     public List<PredictionResult> getPredictionsForMatch(String matchId) {
-        return executeWithResilience(() -> {
+        return execute("match " + matchId, () -> {
             List<PredictionServiceResponse> responses = restClient.get()
                     .uri("/api/predictions/match/{matchId}", matchId)
                     .accept(MediaType.APPLICATION_JSON)
@@ -57,23 +58,27 @@ class PredictionRestClient implements PredictionClientPort {
             return responses.stream()
                     .map(r -> new PredictionResult(r.userId(), r.id(), r.homeScore(), r.awayScore()))
                     .toList();
-        }, matchId);
+        });
     }
 
-    private <T> T executeWithResilience(Supplier<T> supplier, String resourceId) {
-        Supplier<T> withRetry = Retry.decorateSupplier(retry, supplier);
-        try {
-            return circuitBreaker.run(withRetry, throwable -> {
-                log.error("Circuit open for prediction-client, resource: {}", resourceId, throwable);
-                throw new DomainException(ErrorKind.DOWNSTREAM_UNAVAILABLE, "DOWNSTREAM_UNAVAILABLE",
-                        "Prediction service is currently unavailable.");
-            });
-        } catch (DomainException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("Failed to call prediction-service for match: {}", resourceId, e);
+    /**
+     * One HTTP request, with the breaker, time limiter and retry around it.
+     * Each attempt goes through the {@code @LoadBalanced} client's
+     * interceptor, which asks the LoadBalancer for an instance again.
+     */
+    private <T> T execute(String resource, Supplier<T> request) {
+        Supplier<T> withRetry = Retry.decorateSupplier(retry, request);
+        return circuitBreaker.run(withRetry, failure -> {
+            if (failure instanceof DomainException domainException) {
+                throw domainException;
+            }
+            // One line, no stack trace: during an outage this fires on every
+            // request. The innermost cause also names an open circuit.
+            Throwable cause = NestedExceptionUtils.getMostSpecificCause(failure);
+            log.warn("prediction-service call for {} failed: {}: {}", resource,
+                    cause.getClass().getSimpleName(), cause.getMessage());
             throw new DomainException(ErrorKind.DOWNSTREAM_UNAVAILABLE, "DOWNSTREAM_UNAVAILABLE",
                     "Prediction service is currently unavailable.");
-        }
+        });
     }
 }

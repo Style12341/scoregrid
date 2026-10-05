@@ -5,6 +5,7 @@ import com.scoregrid.prediction.prediction.domain.port.out.TournamentClientPort;
 import com.scoregrid.prediction.shared.error.DomainException;
 import com.scoregrid.prediction.shared.error.ErrorKind;
 import com.scoregrid.prediction.shared.security.ServiceTokenInterceptor;
+import io.github.resilience4j.circuitbreaker.CallNotPermittedException;
 import io.github.resilience4j.retry.Retry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -18,6 +19,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.client.HttpClientErrorException;
 import org.springframework.web.client.RestClient;
 
+import java.util.concurrent.TimeoutException;
 import java.util.function.Supplier;
 
 import static com.scoregrid.prediction.shared.config.ResilienceConfig.TOURNAMENT_CLIENT;
@@ -49,37 +51,35 @@ class TournamentRestClient implements TournamentClientPort {
 
     @Override
     public CachedMatch getMatch(String matchId) {
-        return executeWithResilience(() -> {
-            MatchResponse match = restClient.get()
-                    .uri(MATCH_PATH, matchId)
-                    .accept(MediaType.APPLICATION_JSON)
-                    .retrieve()
-                    .onStatus(HttpStatusCode::is4xxClientError, (req, res) -> {
-                        if (res.getStatusCode().value() == 404) {
-                            throw new DomainException(ErrorKind.NOT_FOUND, "NOT_FOUND",
-                                    "Match " + matchId + " not found.");
-                        }
-                        throw new DomainException(ErrorKind.DOWNSTREAM_UNAVAILABLE, "DOWNSTREAM_UNAVAILABLE",
-                                "Tournament service returned error: " + res.getStatusCode());
-                    })
-                    .body(MatchResponse.class);
+        MatchResponse match = execute("match " + matchId, () -> restClient.get()
+                .uri(MATCH_PATH, matchId)
+                .accept(MediaType.APPLICATION_JSON)
+                .retrieve()
+                .onStatus(HttpStatusCode::is4xxClientError, (req, res) -> {
+                    if (res.getStatusCode().value() == 404) {
+                        throw new DomainException(ErrorKind.NOT_FOUND, "NOT_FOUND",
+                                "Match " + matchId + " not found.");
+                    }
+                    throw new DomainException(ErrorKind.DOWNSTREAM_UNAVAILABLE, "DOWNSTREAM_UNAVAILABLE",
+                            "Tournament service returned error: " + res.getStatusCode());
+                })
+                .body(MatchResponse.class));
 
-            String tournamentStatus = getTournamentStatus(match.tournamentId());
-            boolean predictionsOpen = match.predictionsOpen() && "ACTIVE".equals(tournamentStatus);
+        String tournamentStatus = getTournamentStatus(match.tournamentId());
+        boolean predictionsOpen = match.predictionsOpen() && "ACTIVE".equals(tournamentStatus);
 
-            return new CachedMatch(
-                    match.id(),
-                    match.tournamentId(),
-                    tournamentStatus,
-                    match.status(),
-                    match.startTime(),
-                    predictionsOpen
-            );
-        }, matchId);
+        return new CachedMatch(
+                match.id(),
+                match.tournamentId(),
+                tournamentStatus,
+                match.status(),
+                match.startTime(),
+                predictionsOpen
+        );
     }
 
     private String getTournamentStatus(String tournamentId) {
-        TournamentResponse tournament = restClient.get()
+        TournamentResponse tournament = execute("tournament " + tournamentId, () -> restClient.get()
                 .uri(TOURNAMENT_PATH, tournamentId)
                 .accept(MediaType.APPLICATION_JSON)
                 .retrieve()
@@ -92,13 +92,13 @@ class TournamentRestClient implements TournamentClientPort {
                             "DOWNSTREAM_UNAVAILABLE",
                             "Tournament service returned error: " + res.getStatusCode());
                 })
-                .body(TournamentResponse.class);
+                .body(TournamentResponse.class));
         return tournament.status();
     }
 
     @Override
     public boolean isUserEnrolled(String tournamentId, String userId) {
-        return executeWithResilience(() -> {
+        return execute("enrolment " + tournamentId + "/" + userId, () -> {
             try {
                 restClient.get()
                         .uri(ENROLLMENT_PATH, tournamentId, userId)
@@ -109,26 +109,50 @@ class TournamentRestClient implements TournamentClientPort {
             } catch (HttpClientErrorException.NotFound e) {
                 return false;
             }
-        }, tournamentId + "/" + userId);
+        });
     }
 
-    private <T> T executeWithResilience(Supplier<T> supplier, String resourceId) {
-        Supplier<T> withRetry = Retry.decorateSupplier(retry, supplier);
-        try {
-            return circuitBreaker.run(withRetry, throwable -> {
-                log.error("Circuit open for tournament-client, resource: {}", resourceId, throwable);
-                if (throwable instanceof DomainException domainException) {
-                    throw domainException;
-                }
-                throw new DomainException(ErrorKind.DOWNSTREAM_UNAVAILABLE, "DOWNSTREAM_UNAVAILABLE",
-                        "Tournament service is currently unavailable. Please try again later.");
-            });
-        } catch (DomainException e) {
-            throw e;
-        } catch (Exception e) {
-            log.error("Failed to call tournament-service for resource: {}", resourceId, e);
+    /**
+     * One HTTP request, with the breaker, time limiter and retry around it.
+     *
+     * <p>Retried per request, not per use case. getMatch makes two requests,
+     * and round robin alternates between replicas: retrying both together
+     * would send the second one to the same dead replica on every attempt.
+     * Each attempt goes through the {@code @LoadBalanced} client's
+     * interceptor, which asks the LoadBalancer for an instance again.
+     */
+    private <T> T execute(String resource, Supplier<T> request) {
+        Supplier<T> withRetry = Retry.decorateSupplier(retry, request);
+        return circuitBreaker.run(withRetry, failure -> {
+            if (failure instanceof DomainException domainException) {
+                throw domainException;
+            }
+            logFailure(resource, failure);
             throw new DomainException(ErrorKind.DOWNSTREAM_UNAVAILABLE, "DOWNSTREAM_UNAVAILABLE",
                     "Tournament service is currently unavailable. Please try again later.");
+        });
+    }
+
+    /**
+     * One line, no stack trace: during an outage this fires on every request.
+     * "Circuit open" only when the breaker refused the call; otherwise the
+     * innermost cause, which says more than the wrappers around it.
+     */
+    private static void logFailure(String resource, Throwable failure) {
+        if (failure instanceof CallNotPermittedException) {
+            log.warn("tournament-service not called for {}: circuit open", resource);
+        } else if (failure instanceof TimeoutException) {
+            log.warn("tournament-service call for {} cut by the time limiter: {}", resource, failure.getMessage());
+        } else {
+            log.warn("tournament-service call for {} failed: {}", resource, rootCause(failure));
         }
+    }
+
+    private static String rootCause(Throwable failure) {
+        Throwable root = failure;
+        while (root.getCause() != null && root.getCause() != root) {
+            root = root.getCause();
+        }
+        return root.getClass().getSimpleName() + ": " + root.getMessage();
     }
 }

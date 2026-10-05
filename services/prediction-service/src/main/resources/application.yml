@@ -61,6 +61,15 @@ scoregrid:
     issuer: ${SCOREGRID_JWT_ISSUER:scoregrid-auth}
 
   clients:
+    # Timeouts of the @LoadBalanced RestClient, applied in ClientConfig. Not
+    # spring.http.clients.*: the Boot module that binds those is not on this
+    # service's classpath, so they would be ignored without a word.
+    # ResilienceConfig's 2.2 s time limit is sized from these two: change them
+    # together. A cache-miss POST /api/predictions makes three of these
+    # requests in a row, and with one tournament replica dead they must still
+    # add up to well under the gateway's 5 s read timeout.
+    connect-timeout: ${SCOREGRID_CLIENTS_CONNECT_TIMEOUT:500ms}
+    read-timeout: ${SCOREGRID_CLIENTS_READ_TIMEOUT:1500ms}
     # Used only on match-cache miss. The cache is fed by match.scheduled /
     # match.updated events — see docs/contracts.md#events--rabbitmq.
     tournament:
@@ -104,6 +113,27 @@ spring:
   config:
     activate:
       on-profile: docker
+  cloud:
+    loadbalancer:
+      cache:
+        # Default 35 s: a dead replica of a service this one calls would stay
+        # in the @LoadBalanced RestClient's instance list that long.
+        ttl: 5s
+
+# Demo-speed discovery for the containerised stack, so a stopped or new
+# replica shows up in every client's routing table within seconds instead of
+# the ~90 s the defaults add up to. Local ./mvnw runs keep the defaults; CI
+# runs with Eureka disabled. Same values in every service; see
+# docs/demo.md#failover.
+eureka:
+  instance:
+    lease-renewal-interval-in-seconds: 5
+    # Eureka's Lease doubles this: renew() stores now+duration and isExpired()
+    # adds duration again. 10 s means a SIGKILLed replica is evicted ~20 s
+    # after its last heartbeat.
+    lease-expiration-duration-in-seconds: 10
+  client:
+    registry-fetch-interval-seconds: 5
 
 logging:
   structured:
