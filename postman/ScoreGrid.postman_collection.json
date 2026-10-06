@@ -1,0 +1,4186 @@
+{
+  "info": {
+    "_postman_id": "7d0c3c1e-5b8a-4f7e-9a51-3c2f9e0b6a14",
+    "name": "ScoreGrid API",
+    "description": "Live walkthrough of the ScoreGrid API through the gateway: platform checks, the admin and participant journeys, asynchronous scoring, every contract error code, the failover companion requests and an endpoint reference.\n\nUse with the **ScoreGrid local** environment. Set `adminPassword` there (the `SCOREGRID_ADMIN_PASSWORD` value from `.env`; it is never stored in the repository). Headless: `scripts/api-tests.sh`.\n\nRun 00-04 and 06 in order (the Collection Runner keeps the ids each request captures). 05 is manual. Every run creates fresh users, teams and tournaments; nothing is deleted.\n\nContract: docs/contracts.md. Runbook: docs/demo.md. Details: postman/README.md.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "auth": {
+    "type": "noauth"
+  },
+  "item": [
+    {
+      "name": "00 Platform",
+      "description": "Edge security, CORS, discovery and metrics. Read-only; no login needed. Prometheus checks need the observability profile (`docker compose --profile observability up -d`).",
+      "item": [
+        {
+          "name": "Gateway rejects a request without a token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 401', () => pm.response.to.have.status(401));",
+                  "pm.test('contract error envelope with error = UNAUTHORIZED', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(Object.keys(body).sort(), 'envelope fields').to.eql(['error', 'message', 'path', 'status', 'timestamp']);",
+                  "    pm.expect(body.status).to.eql(401);",
+                  "    pm.expect(body.error).to.eql('UNAUTHORIZED');",
+                  "    pm.expect(body.message).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.path).to.eql('/api/tournaments');",
+                  "    pm.expect(body.timestamp, 'ISO-8601 UTC').to.match(/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$/);",
+                  "});",
+                  "pm.test('WWW-Authenticate announces Bearer', () => {",
+                  "    pm.expect(pm.response.headers.get('WWW-Authenticate') || '').to.match(/^Bearer/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tournaments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tournaments"
+              ]
+            },
+            "description": "No `Authorization` header. The gateway refuses it before routing, in the contract envelope, and keeps the standard `WWW-Authenticate: Bearer` header."
+          }
+        },
+        {
+          "name": "CORS preflight from the frontend origin",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('origin, method, headers and credentials are allowed', () => {",
+                  "    const h = (name) => pm.response.headers.get(name) || '';",
+                  "    pm.expect(h('Access-Control-Allow-Origin')).to.eql(pm.variables.get('frontendOrigin'));",
+                  "    pm.expect(h('Access-Control-Allow-Methods').split(',').map((s) => s.trim())).to.include('POST');",
+                  "    pm.expect(h('Access-Control-Allow-Headers').toLowerCase()).to.include('authorization');",
+                  "    pm.expect(h('Access-Control-Allow-Credentials')).to.eql('true');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "OPTIONS",
+            "header": [
+              {
+                "key": "Origin",
+                "value": "{{frontendOrigin}}"
+              },
+              {
+                "key": "Access-Control-Request-Method",
+                "value": "POST"
+              },
+              {
+                "key": "Access-Control-Request-Headers",
+                "value": "authorization,content-type"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/tournaments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tournaments"
+              ]
+            },
+            "description": "What the browser sends before a cross-origin `POST` from the frontend at http://localhost:3000. CORS lives only at the gateway."
+          }
+        },
+        {
+          "name": "CORS preflight from an unknown origin is refused",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 403', () => pm.response.to.have.status(403));",
+                  "pm.test('no Access-Control-Allow-Origin header', () => {",
+                  "    pm.expect(pm.response.headers.has('Access-Control-Allow-Origin')).to.be.false;",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "OPTIONS",
+            "header": [
+              {
+                "key": "Origin",
+                "value": "http://evil.example"
+              },
+              {
+                "key": "Access-Control-Request-Method",
+                "value": "POST"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/tournaments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tournaments"
+              ]
+            },
+            "description": "Same preflight from an origin that is not in `SCOREGRID_CORS_ALLOWED_ORIGINS`."
+          }
+        },
+        {
+          "name": "Eureka lists every service",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const apps = [].concat(pm.response.json().applications.application || []);",
+                  "const up = {};",
+                  "apps.forEach((app) => { up[app.name] = [].concat(app.instance || []).filter((i) => i.status === 'UP').length; });",
+                  "console.log('Eureka UP instances:', JSON.stringify(up));",
+                  "['API-GATEWAY', 'AUTH-SERVICE', 'TOURNAMENT-SERVICE', 'PREDICTION-SERVICE', 'SCORE-SERVICE'].forEach((name) => {",
+                  "    pm.test(name + ' has an UP instance (' + (up[name] || 0) + ')', () => pm.expect(up[name] || 0).to.be.at.least(1));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [
+              {
+                "key": "Accept",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{eurekaUrl}}/eureka/apps",
+              "host": [
+                "{{eurekaUrl}}"
+              ],
+              "path": [
+                "eureka",
+                "apps"
+              ]
+            },
+            "description": "The registry (eureka-server, the sixth service) answers and lists the five clients: gateway and four business services, each with at least one UP instance. tournament-service shows two (its compose default)."
+          }
+        },
+        {
+          "name": "Prometheus scrapes every service",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const targets = pm.response.json().data.activeTargets.filter((t) => t.labels.job === 'scoregrid-services');",
+                  "const services = [...new Set(targets.map((t) => t.labels.service))].sort();",
+                  "console.log('scoregrid-services targets:', targets.map((t) => t.labels.instance + '=' + t.health).join(', '));",
+                  "pm.test('a target for each of the six services (' + targets.length + ' targets)', () => {",
+                  "    pm.expect(services).to.include.members(['api-gateway', 'auth-service', 'eureka-server', 'prediction-service', 'score-service', 'tournament-service']);",
+                  "});",
+                  "pm.test('every scoregrid-services target is up', () => {",
+                  "    targets.forEach((t) => pm.expect(t.health, t.labels.instance).to.eql('up'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{prometheusUrl}}/api/v1/targets?state=active",
+              "host": [
+                "{{prometheusUrl}}"
+              ],
+              "path": [
+                "api",
+                "v1",
+                "targets"
+              ],
+              "query": [
+                {
+                  "key": "state",
+                  "value": "active"
+                }
+              ]
+            },
+            "description": "Prometheus discovers its `scoregrid-services` targets from Eureka: one per registered replica plus eureka-server. Every one must be `up`. Right after a replica is killed its target reads `down` until Eureka evicts it (30-40 s)."
+          }
+        }
+      ]
+    },
+    {
+      "name": "01 Admin journey",
+      "description": "The admin builds a tournament: DRAFT, two teams, a group, two scheduled matches, then ACTIVE. Every run uses fresh names. Run before 02-06.",
+      "item": [
+        {
+          "name": "Login as admin",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "if (!pm.variables.get('adminPassword')) {",
+                  "    throw new Error('adminPassword is empty: set it in the \"ScoreGrid local\" environment (SCOREGRID_ADMIN_PASSWORD in .env), or run scripts/api-tests.sh');",
+                  "}",
+                  "",
+                  "// Fresh names on every run, so the collection can be rerun against the same database.",
+                  "const runId = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);",
+                  "pm.collectionVariables.set('runId', runId);",
+                  "pm.collectionVariables.set('runShort', runId.slice(-6).toUpperCase());"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('token and admin profile', () => {",
+                  "    pm.expect(body.token).to.be.a('string').and.not.empty;",
+                  "    pm.expect(new Date(body.expiresAt).getTime()).to.be.above(Date.now());",
+                  "    pm.expect(body.user.username).to.eql(pm.variables.get('adminUsername'));",
+                  "    pm.expect(body.user.roles).to.include('ADMIN');",
+                  "});",
+                  "pm.collectionVariables.set('adminToken', body.token);",
+                  "pm.collectionVariables.set('adminId', body.user.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "Public. `adminPassword` is the `SCOREGRID_ADMIN_PASSWORD` from `.env`: set it in the environment for the Postman app; `scripts/api-tests.sh` injects it. The bootstrap admin holds both `ADMIN` and `PLAYER`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usernameOrEmail\": \"{{adminUsername}}\",\n  \"password\": \"{{adminPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create tournament (DRAFT)",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const DAY = 24 * 60 * 60 * 1000;",
+                  "const isoDate = (ms) => new Date(ms).toISOString().slice(0, 10);",
+                  "const isoInstant = (ms) => new Date(ms).toISOString().replace(/\\.\\d{3}Z$/, 'Z');",
+                  "const now = Date.now();",
+                  "pm.collectionVariables.set('startDate', isoDate(now + 2 * DAY));",
+                  "pm.collectionVariables.set('endDate', isoDate(now + 60 * DAY));",
+                  "pm.collectionVariables.set('kickoff', isoInstant(now + 7 * DAY));",
+                  "pm.collectionVariables.set('openKickoff', isoInstant(now + 8 * DAY));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "pm.test('DRAFT tournament created by the admin', () => {",
+                  "    const t = pm.response.json();",
+                  "    pm.expect(t.id).to.be.a('string').and.not.empty;",
+                  "    pm.expect(t).to.include.keys('name', 'description', 'status', 'startDate', 'endDate', 'createdBy', 'createdAt', 'updatedAt');",
+                  "    pm.expect(t.status).to.eql('DRAFT');",
+                  "    pm.expect(t.name).to.eql('Copa API ' + pm.collectionVariables.get('runId'));",
+                  "    pm.expect(t.startDate).to.eql(pm.collectionVariables.get('startDate'));",
+                  "    pm.expect(t.createdBy).to.eql(pm.collectionVariables.get('adminId'));",
+                  "});",
+                  "pm.test('Location header points at the tournament', () => {",
+                  "    pm.expect(pm.response.headers.get('Location')).to.eql('/api/tournaments/' + pm.response.json().id);",
+                  "});",
+                  "pm.collectionVariables.set('tournamentId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/tournaments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tournaments"
+              ]
+            },
+            "description": "`startDate` must be strictly after the server's today, or activation fails with `VALIDATION_FAILED`. The pre-request script sets it two days ahead (UTC).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Copa API {{runId}}\",\n  \"description\": \"Created by the Postman kit\",\n  \"startDate\": \"{{startDate}}\",\n  \"endDate\": \"{{endDate}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create home team",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "const team = pm.response.json();",
+                  "pm.test('team created', () => {",
+                  "    pm.expect(team.id).to.be.a('string').and.not.empty;",
+                  "    pm.expect(team.name).to.include(pm.collectionVariables.get('runId'));",
+                  "    pm.expect(team.country).to.eql('AR');",
+                  "});",
+                  "pm.collectionVariables.set('homeTeamId', team.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/teams",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "teams"
+              ]
+            },
+            "description": "Teams are a global catalogue; the run id keeps names unique. `shortName` max 10 chars, `country` max 5.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Local {{runId}}\",\n  \"shortName\": \"L{{runShort}}\",\n  \"country\": \"AR\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create away team",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "const team = pm.response.json();",
+                  "pm.test('team created', () => {",
+                  "    pm.expect(team.id).to.be.a('string').and.not.empty;",
+                  "    pm.expect(team.name).to.include(pm.collectionVariables.get('runId'));",
+                  "    pm.expect(team.country).to.eql('AR');",
+                  "});",
+                  "pm.collectionVariables.set('awayTeamId', team.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/teams",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "teams"
+              ]
+            },
+            "description": "Teams are a global catalogue; the run id keeps names unique. `shortName` max 10 chars, `country` max 5.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Visitante {{runId}}\",\n  \"shortName\": \"V{{runShort}}\",\n  \"country\": \"AR\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Assign teams to the tournament",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('both teams assigned', () => {",
+                  "    pm.expect(pm.response.json().map((t) => t.id)).to.include.members([pm.collectionVariables.get('homeTeamId'), pm.collectionVariables.get('awayTeamId')]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/tournaments/{{tournamentId}}/teams",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tournaments",
+                "{{tournamentId}}",
+                "teams"
+              ]
+            },
+            "description": "Idempotent. Returns the tournament's teams.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"teamIds\": [\n    \"{{homeTeamId}}\",\n    \"{{awayTeamId}}\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create group",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "const group = pm.response.json();",
+                  "pm.test('group belongs to the tournament', () => {",
+                  "    pm.expect(group.tournamentId).to.eql(pm.collectionVariables.get('tournamentId'));",
+                  "    pm.expect(group.name).to.eql('Grupo A');",
+                  "    pm.expect(group.displayOrder).to.eql(1);",
+                  "});",
+                  "pm.collectionVariables.set('groupId', group.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/tournaments/{{tournamentId}}/groups",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tournaments",
+                "{{tournamentId}}",
+                "groups"
+              ]
+            },
+            "description": "Only while the tournament is DRAFT.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Grupo A\",\n  \"displayOrder\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Assign teams to the group",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('both teams in the group', () => {",
+                  "    pm.expect(pm.response.json().map((t) => t.id)).to.include.members([pm.collectionVariables.get('homeTeamId'), pm.collectionVariables.get('awayTeamId')]);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/groups/{{groupId}}/teams",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "groups",
+                "{{groupId}}",
+                "teams"
+              ]
+            },
+            "description": "The teams must already belong to the tournament.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"teamIds\": [\n    \"{{homeTeamId}}\",\n    \"{{awayTeamId}}\"\n  ]\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create the match to score",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "const match = pm.response.json();",
+                  "pm.test('SCHEDULED group match', () => {",
+                  "    pm.expect(match.tournamentId).to.eql(pm.collectionVariables.get('tournamentId'));",
+                  "    pm.expect(match.groupId).to.eql(pm.collectionVariables.get('groupId'));",
+                  "    pm.expect(match.phaseId).to.be.null;",
+                  "    pm.expect(match.homeTeam.id).to.eql(pm.collectionVariables.get('homeTeamId'));",
+                  "    pm.expect(match.awayTeam.id).to.eql(pm.collectionVariables.get('awayTeamId'));",
+                  "    pm.expect(new Date(match.startTime).getTime()).to.eql(new Date(pm.collectionVariables.get('kickoff')).getTime());",
+                  "    pm.expect(match.status).to.eql('SCHEDULED');",
+                  "    pm.expect(match.homeScore).to.be.null;",
+                  "    pm.expect(match.awayScore).to.be.null;",
+                  "});",
+                  "pm.collectionVariables.set('matchId', match.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/tournaments/{{tournamentId}}/matches",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tournaments",
+                "{{tournamentId}}",
+                "matches"
+              ]
+            },
+            "description": "Exactly one of `groupId` / `phaseId`. `startTime` must be in the future (ISO-8601 UTC). Publishes `match.scheduled`, which warms Prediction Service's cache. The participant predicts this one in 02 and the admin loads its result in 03.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"groupId\": \"{{groupId}}\",\n  \"homeTeamId\": \"{{homeTeamId}}\",\n  \"awayTeamId\": \"{{awayTeamId}}\",\n  \"startTime\": \"{{kickoff}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Create a second match that stays open",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "const match = pm.response.json();",
+                  "pm.test('SCHEDULED group match', () => {",
+                  "    pm.expect(match.tournamentId).to.eql(pm.collectionVariables.get('tournamentId'));",
+                  "    pm.expect(match.groupId).to.eql(pm.collectionVariables.get('groupId'));",
+                  "    pm.expect(match.phaseId).to.be.null;",
+                  "    pm.expect(match.homeTeam.id).to.eql(pm.collectionVariables.get('homeTeamId'));",
+                  "    pm.expect(match.awayTeam.id).to.eql(pm.collectionVariables.get('awayTeamId'));",
+                  "    pm.expect(new Date(match.startTime).getTime()).to.eql(new Date(pm.collectionVariables.get('openKickoff')).getTime());",
+                  "    pm.expect(match.status).to.eql('SCHEDULED');",
+                  "    pm.expect(match.homeScore).to.be.null;",
+                  "    pm.expect(match.awayScore).to.be.null;",
+                  "});",
+                  "pm.collectionVariables.set('openMatchId', match.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/tournaments/{{tournamentId}}/matches",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tournaments",
+                "{{tournamentId}}",
+                "matches"
+              ]
+            },
+            "description": "Exactly one of `groupId` / `phaseId`. `startTime` must be in the future (ISO-8601 UTC). Publishes `match.scheduled`, which warms Prediction Service's cache. Never finished. Folder 04 uses it for the prediction errors that need an open match.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"groupId\": \"{{groupId}}\",\n  \"homeTeamId\": \"{{homeTeamId}}\",\n  \"awayTeamId\": \"{{awayTeamId}}\",\n  \"startTime\": \"{{openKickoff}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Activate the tournament",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('tournament is ACTIVE', () => pm.expect(pm.response.json().status).to.eql('ACTIVE'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/tournaments/{{tournamentId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tournaments",
+                "{{tournamentId}}",
+                "status"
+              ]
+            },
+            "description": "DRAFT -> ACTIVE. Republishes `match.updated` for every match with the new tournament status.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"ACTIVE\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List the scheduled matches",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('both matches are open for predictions', () => {",
+                  "    const rows = pm.response.json();",
+                  "    const ids = [pm.collectionVariables.get('matchId'), pm.collectionVariables.get('openMatchId')];",
+                  "    pm.expect(rows.map((m) => m.id)).to.include.members(ids);",
+                  "    rows.filter((m) => ids.includes(m.id)).forEach((m) => pm.expect(m.predictionsOpen, m.id).to.be.true);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tournaments/{{tournamentId}}/matches?status=SCHEDULED",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tournaments",
+                "{{tournamentId}}",
+                "matches"
+              ],
+              "query": [
+                {
+                  "key": "status",
+                  "value": "SCHEDULED"
+                }
+              ]
+            },
+            "description": "`predictionsOpen` is computed by tournament-service (`status == SCHEDULED && now < startTime`) and trusted by everyone else."
+          }
+        }
+      ]
+    },
+    {
+      "name": "02 Participant journey",
+      "description": "A new participant registers, logs in, joins the tournament from 01 and predicts 2-1. Every run registers a new user.",
+      "item": [
+        {
+          "name": "Register participant",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "// A throwaway demo account with a fresh name on every run.",
+                  "const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);",
+                  "pm.collectionVariables.set('participantUsername', 'fan_' + id);",
+                  "pm.collectionVariables.set('participantEmail', 'fan_' + id + '@example.com');",
+                  "pm.collectionVariables.set('participantPassword', 'pw-' + Math.random().toString(36).slice(2, 12));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "const user = pm.response.json();",
+                  "pm.test('PLAYER profile, no token, no password', () => {",
+                  "    pm.expect(Object.keys(user).sort()).to.eql(['email', 'id', 'roles', 'username']);",
+                  "    pm.expect(user.username).to.eql(pm.collectionVariables.get('participantUsername'));",
+                  "    pm.expect(user.roles).to.eql(['PLAYER']);",
+                  "});",
+                  "pm.collectionVariables.set('participantId', user.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register"
+              ]
+            },
+            "description": "Public. Returns the profile, not a token: registering does not log in. New accounts get `PLAYER` only.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{participantUsername}}\",\n  \"email\": \"{{participantEmail}}\",\n  \"password\": \"{{participantPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Login as participant",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const body = pm.response.json();",
+                  "pm.test('token for the registered user', () => {",
+                  "    pm.expect(body.token).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.user.id).to.eql(pm.collectionVariables.get('participantId'));",
+                  "});",
+                  "pm.collectionVariables.set('participantToken', body.token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usernameOrEmail\": \"{{participantUsername}}\",\n  \"password\": \"{{participantPassword}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Who am I",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('profile of the token owner', () => {",
+                  "    pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('participantId'));",
+                  "    pm.expect(pm.response.json().email).to.eql(pm.collectionVariables.get('participantEmail'));",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{participantToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "me"
+              ]
+            },
+            "description": "The acting user always comes from the JWT `sub` claim."
+          }
+        },
+        {
+          "name": "Join the tournament",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('enrolment for the token owner', () => {",
+                  "    const p = pm.response.json();",
+                  "    pm.expect(p.userId).to.eql(pm.collectionVariables.get('participantId'));",
+                  "    pm.expect(p.tournamentId).to.eql(pm.collectionVariables.get('tournamentId'));",
+                  "    pm.expect(p.joinedAt).to.be.a('string');",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{participantToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tournaments/{{tournamentId}}/join",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tournaments",
+                "{{tournamentId}}",
+                "join"
+              ]
+            },
+            "description": "PLAYER only, ACTIVE tournaments only. No body: the user is the token's `sub`. Joining twice is `409 CONFLICT`."
+          }
+        },
+        {
+          "name": "Predict the match 2-1",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "const p = pm.response.json();",
+                  "pm.test('prediction stored for the token owner', () => {",
+                  "    pm.expect(p.userId).to.eql(pm.collectionVariables.get('participantId'));",
+                  "    pm.expect(p.tournamentId).to.eql(pm.collectionVariables.get('tournamentId'));",
+                  "    pm.expect(p.matchId).to.eql(pm.collectionVariables.get('matchId'));",
+                  "    pm.expect(p.predictionType).to.eql('EXACT_SCORE');",
+                  "    pm.expect(p.derivedOutcome).to.eql('HOME_WIN');",
+                  "    pm.expect(p.locked).to.be.false;",
+                  "});",
+                  "pm.collectionVariables.set('predictionId', p.id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{participantToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/predictions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "predictions"
+              ]
+            },
+            "description": "No `userId` in the body, ever. Prediction Service checks the lock and the tournament from its match cache and the enrolment through tournament-service.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"matchId\": \"{{matchId}}\",\n  \"homeScore\": 2,\n  \"awayScore\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "List my predictions",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('the prediction is listed', () => {",
+                  "    const rows = pm.response.json();",
+                  "    pm.expect(rows).to.have.lengthOf(1);",
+                  "    pm.expect(rows[0].id).to.eql(pm.collectionVariables.get('predictionId'));",
+                  "    pm.expect(rows[0].homeScore).to.eql(2);",
+                  "    pm.expect(rows[0].awayScore).to.eql(1);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{participantToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/predictions/me?tournamentId={{tournamentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "predictions",
+                "me"
+              ],
+              "query": [
+                {
+                  "key": "tournamentId",
+                  "value": "{{tournamentId}}"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "03 Result and scoring",
+      "description": "The admin loads 2-1. tournament-service publishes `match.finished`; score-service consumes it from RabbitMQ and scores asynchronously, so the ranking is polled. Then the same result is loaded again and the points must not double: the match score is replaced, never added.",
+      "item": [
+        {
+          "name": "Load the result 2-1",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 204', () => pm.response.to.have.status(204));",
+                  "pm.collectionVariables.set('pollAttempt', 0);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/matches/{{matchId}}/result",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "matches",
+                "{{matchId}}",
+                "result"
+              ]
+            },
+            "description": "Sets the match to FINISHED and publishes `match.finished`. Scoring happens later, in score-service.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"homeScore\": 2,\n  \"awayScore\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Poll the tournament ranking until the participant has 3 points",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const MAX_ATTEMPTS = 15;",
+                  "const attempt = Number(pm.collectionVariables.get('pollAttempt') || 0) + 1;",
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const rows = pm.response.json();",
+                  "const me = rows.find((r) => r.userId === pm.collectionVariables.get('participantId'));",
+                  "if (me && me.points === 3) {",
+                  "    pm.collectionVariables.set('pollAttempt', 0);",
+                  "    pm.test('exact score: 3 points (visible after ' + attempt + ' poll(s))', () => {",
+                  "        pm.expect(me.username).to.eql(pm.collectionVariables.get('participantUsername'));",
+                  "        pm.expect(me.points).to.eql(3);",
+                  "        pm.expect(me.hits).to.eql(1);",
+                  "        pm.expect(me.exactHits).to.eql(1);",
+                  "        pm.expect(me.predictionsScored).to.eql(1);",
+                  "        pm.expect(me.accuracy).to.eql(1);",
+                  "        pm.expect(me.position).to.eql(1);",
+                  "    });",
+                  "} else if (attempt < MAX_ATTEMPTS) {",
+                  "    pm.collectionVariables.set('pollAttempt', attempt);",
+                  "    console.log('score not visible yet (attempt ' + attempt + '/' + MAX_ATTEMPTS + '), retrying in 1 s');",
+                  "    pm.execution.setNextRequest(pm.info.requestName);",
+                  "    setTimeout(() => {}, 1000);",
+                  "} else {",
+                  "    pm.collectionVariables.set('pollAttempt', 0);",
+                  "    pm.test('participant reaches 3 points within ~' + MAX_ATTEMPTS + ' s', () => {",
+                  "        pm.expect.fail('row after ' + attempt + ' polls: ' + JSON.stringify(me || null) +",
+                  "            '. Is score-service consuming match.finished? docker compose logs score-service');",
+                  "    });",
+                  "}"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/rankings/tournament/{{tournamentId}}?page=0&size=50",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "rankings",
+                "tournament",
+                "{{tournamentId}}"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "50"
+                }
+              ]
+            },
+            "description": "Scoring is asynchronous. In the Collection Runner (or newman) this request repeats itself every second with `pm.execution.setNextRequest` until the row shows 3 points, and fails after 15 attempts (about 15 s). With a single Send, press Send again until the tests appear."
+          }
+        },
+        {
+          "name": "Global ranking includes the participant",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const rows = pm.response.json();",
+                  "const me = rows.find((r) => r.userId === pm.collectionVariables.get('participantId'));",
+                  "pm.test('one tournament, 3 points', () => {",
+                  "    pm.expect(me, 'participant row').to.be.an('object');",
+                  "    pm.expect(me.totalPoints).to.eql(3);",
+                  "    pm.expect(me.tournamentsPlayed).to.eql(1);",
+                  "    pm.expect(me.totalHits).to.eql(1);",
+                  "    pm.expect(me.exactHits).to.eql(1);",
+                  "    pm.expect(me.predictionsScored).to.eql(1);",
+                  "    pm.expect(me.averagePointsPerTournament).to.eql(3);",
+                  "    pm.expect(me.position).to.be.at.least(1);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/rankings/global?page=0&size=1000",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "rankings",
+                "global"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "1000"
+                }
+              ]
+            },
+            "description": "Derived from every match score. `size=1000` so the new participant is on the page however many earlier runs share 3 points."
+          }
+        },
+        {
+          "name": "User ranking of the participant",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('one tournament entry with 3 points', () => {",
+                  "    const rows = pm.response.json();",
+                  "    pm.expect(rows).to.have.lengthOf(1);",
+                  "    pm.expect(rows[0].userId).to.eql(pm.collectionVariables.get('participantId'));",
+                  "    pm.expect(rows[0].points).to.eql(3);",
+                  "    pm.expect(rows[0].position).to.eql(1);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{participantToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/rankings/user/{{participantId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "rankings",
+                "user",
+                "{{participantId}}"
+              ]
+            },
+            "description": "One entry per tournament the user has scores in, with the position in that tournament."
+          }
+        },
+        {
+          "name": "Load the same result again",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/matches/{{matchId}}/result",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "matches",
+                "{{matchId}}",
+                "result"
+              ]
+            },
+            "description": "Allowed on a FINISHED match: a corrected (or repeated) result republishes `match.finished`, and score-service scores the match again.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"homeScore\": 2,\n  \"awayScore\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Ranking after the second load: still 3 points",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "setTimeout(() => {}, 3000);"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const rows = pm.response.json();",
+                  "const me = rows.find((r) => r.userId === pm.collectionVariables.get('participantId'));",
+                  "pm.test('points did not double', () => {",
+                  "    pm.expect(me.points).to.eql(3);",
+                  "    pm.expect(me.predictionsScored).to.eql(1);",
+                  "    pm.expect(me.exactHits).to.eql(1);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/rankings/tournament/{{tournamentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "rankings",
+                "tournament",
+                "{{tournamentId}}"
+              ]
+            },
+            "description": "Waits 3 s for the second `match.finished` to be consumed. A running total would now read 6; the per-match score document is replaced, so it stays 3."
+          }
+        },
+        {
+          "name": "Recalculate the match",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/rankings/recalculate/match/{{matchId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "rankings",
+                "recalculate",
+                "match",
+                "{{matchId}}"
+              ]
+            },
+            "description": "ADMIN. Synchronous replay of one match: the escape hatch for a lost event. Safe to call any number of times."
+          }
+        },
+        {
+          "name": "Recalculate the tournament",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 204', () => pm.response.to.have.status(204));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/rankings/recalculate/tournament/{{tournamentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "rankings",
+                "recalculate",
+                "tournament",
+                "{{tournamentId}}"
+              ]
+            },
+            "description": "ADMIN. Synchronous replay of every finished match in the tournament."
+          }
+        },
+        {
+          "name": "Ranking after the recalculations: still 3 points",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "const rows = pm.response.json();",
+                  "const me = rows.find((r) => r.userId === pm.collectionVariables.get('participantId'));",
+                  "pm.test('replays are idempotent', () => {",
+                  "    pm.expect(me.points).to.eql(3);",
+                  "    pm.expect(me.predictionsScored).to.eql(1);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/rankings/tournament/{{tournamentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "rankings",
+                "tournament",
+                "{{tournamentId}}"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "04 Contract errors",
+      "description": "One request per error code in docs/contracts.md, each asserting the exact envelope `{timestamp, status, error, message, path}`. Requests named \"Setup\" prepare the next error. Needs 01-03 first. `DOWNSTREAM_UNAVAILABLE` is in 05: it needs a service down.",
+      "item": [
+        {
+          "name": "UNAUTHORIZED: wrong password",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 401', () => pm.response.to.have.status(401));",
+                  "pm.test('contract error envelope with error = UNAUTHORIZED', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(Object.keys(body).sort(), 'envelope fields').to.eql(['error', 'message', 'path', 'status', 'timestamp']);",
+                  "    pm.expect(body.status).to.eql(401);",
+                  "    pm.expect(body.error).to.eql('UNAUTHORIZED');",
+                  "    pm.expect(body.message).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.path).to.eql('/api/auth/login');",
+                  "    pm.expect(body.timestamp, 'ISO-8601 UTC').to.match(/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "description": "From auth-service. The message must not say whether the user exists.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usernameOrEmail\": \"{{participantUsername}}\",\n  \"password\": \"definitely-not-the-password\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "UNAUTHORIZED: forged token",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 401', () => pm.response.to.have.status(401));",
+                  "pm.test('contract error envelope with error = UNAUTHORIZED', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(Object.keys(body).sort(), 'envelope fields').to.eql(['error', 'message', 'path', 'status', 'timestamp']);",
+                  "    pm.expect(body.status).to.eql(401);",
+                  "    pm.expect(body.error).to.eql('UNAUTHORIZED');",
+                  "    pm.expect(body.message).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.path).to.eql('/api/tournaments');",
+                  "    pm.expect(body.timestamp, 'ISO-8601 UTC').to.match(/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "not-a-real-jwt",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tournaments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tournaments"
+              ]
+            },
+            "description": "From the gateway: the token is not a JWT signed with the shared secret, so the request never reaches tournament-service."
+          }
+        },
+        {
+          "name": "FORBIDDEN: participant creates a team",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 403', () => pm.response.to.have.status(403));",
+                  "pm.test('contract error envelope with error = FORBIDDEN', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(Object.keys(body).sort(), 'envelope fields').to.eql(['error', 'message', 'path', 'status', 'timestamp']);",
+                  "    pm.expect(body.status).to.eql(403);",
+                  "    pm.expect(body.error).to.eql('FORBIDDEN');",
+                  "    pm.expect(body.message).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.path).to.eql('/api/teams');",
+                  "    pm.expect(body.timestamp, 'ISO-8601 UTC').to.match(/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{participantToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/teams",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "teams"
+              ]
+            },
+            "description": "Authenticated, wrong role. The gateway lets it through; tournament-service enforces `ADMIN` at the method level.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Not allowed {{runId}}\",\n  \"shortName\": \"NOPE\",\n  \"country\": \"AR\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "VALIDATION_FAILED: score of 100",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 400', () => pm.response.to.have.status(400));",
+                  "pm.test('contract error envelope with error = VALIDATION_FAILED', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(Object.keys(body).sort(), 'envelope fields').to.eql(['error', 'message', 'path', 'status', 'timestamp']);",
+                  "    pm.expect(body.status).to.eql(400);",
+                  "    pm.expect(body.error).to.eql('VALIDATION_FAILED');",
+                  "    pm.expect(body.message).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.path).to.eql('/api/predictions');",
+                  "    pm.expect(body.timestamp, 'ISO-8601 UTC').to.match(/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{participantToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/predictions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "predictions"
+              ]
+            },
+            "description": "Scores are integers 0..99. Step 1 of the validation chain, before any downstream call.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"matchId\": \"{{openMatchId}}\",\n  \"homeScore\": 100,\n  \"awayScore\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Setup: register a second participant",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const id = Date.now().toString(36) + Math.random().toString(36).slice(2, 6);",
+                  "pm.collectionVariables.set('participant2Username', 'rival_' + id);",
+                  "pm.collectionVariables.set('participant2Password', 'pw-' + Math.random().toString(36).slice(2, 12));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('participant2Id', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/register",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "register"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"username\": \"{{participant2Username}}\",\n  \"email\": \"{{participant2Username}}@example.com\",\n  \"password\": \"{{participant2Password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Setup: login as the second participant",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.collectionVariables.set('participant2Token', pm.response.json().token);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "noauth"
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/auth/login",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "auth",
+                "login"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"usernameOrEmail\": \"{{participant2Username}}\",\n  \"password\": \"{{participant2Password}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "NOT_ENROLLED: predict without joining",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 403', () => pm.response.to.have.status(403));",
+                  "pm.test('contract error envelope with error = NOT_ENROLLED', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(Object.keys(body).sort(), 'envelope fields').to.eql(['error', 'message', 'path', 'status', 'timestamp']);",
+                  "    pm.expect(body.status).to.eql(403);",
+                  "    pm.expect(body.error).to.eql('NOT_ENROLLED');",
+                  "    pm.expect(body.message).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.path).to.eql('/api/predictions');",
+                  "    pm.expect(body.timestamp, 'ISO-8601 UTC').to.match(/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{participant2Token}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/predictions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "predictions"
+              ]
+            },
+            "description": "The second participant never joined. Prediction Service asks tournament-service `GET /api/tournaments/{id}/participants/{userId}` and gets 404.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"matchId\": \"{{openMatchId}}\",\n  \"homeScore\": 1,\n  \"awayScore\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Setup: predict the open match",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('openPredictionId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{participantToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/predictions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "predictions"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"matchId\": \"{{openMatchId}}\",\n  \"homeScore\": 0,\n  \"awayScore\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "DUPLICATE_PREDICTION: same match again",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 409', () => pm.response.to.have.status(409));",
+                  "pm.test('contract error envelope with error = DUPLICATE_PREDICTION', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(Object.keys(body).sort(), 'envelope fields').to.eql(['error', 'message', 'path', 'status', 'timestamp']);",
+                  "    pm.expect(body.status).to.eql(409);",
+                  "    pm.expect(body.error).to.eql('DUPLICATE_PREDICTION');",
+                  "    pm.expect(body.message).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.path).to.eql('/api/predictions');",
+                  "    pm.expect(body.timestamp, 'ISO-8601 UTC').to.match(/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{participantToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/predictions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "predictions"
+              ]
+            },
+            "description": "One prediction per user and match. Change it with `PUT /api/predictions/{id}` instead (06.4).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"matchId\": \"{{openMatchId}}\",\n  \"homeScore\": 3,\n  \"awayScore\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "PREDICTION_LOCKED: predict the finished match",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 409', () => pm.response.to.have.status(409));",
+                  "pm.test('contract error envelope with error = PREDICTION_LOCKED', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(Object.keys(body).sort(), 'envelope fields').to.eql(['error', 'message', 'path', 'status', 'timestamp']);",
+                  "    pm.expect(body.status).to.eql(409);",
+                  "    pm.expect(body.error).to.eql('PREDICTION_LOCKED');",
+                  "    pm.expect(body.message).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.path).to.eql('/api/predictions');",
+                  "    pm.expect(body.timestamp, 'ISO-8601 UTC').to.match(/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{participantToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/predictions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "predictions"
+              ]
+            },
+            "description": "The match from 03 is FINISHED, so `predictionsOpen` is false. The lock (step 3) is checked before the duplicate (step 6).",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"matchId\": \"{{matchId}}\",\n  \"homeScore\": 1,\n  \"awayScore\": 0\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "INVALID_MATCH_STATE: edit the finished match",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 409', () => pm.response.to.have.status(409));",
+                  "pm.test('contract error envelope with error = INVALID_MATCH_STATE', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(Object.keys(body).sort(), 'envelope fields').to.eql(['error', 'message', 'path', 'status', 'timestamp']);",
+                  "    pm.expect(body.status).to.eql(409);",
+                  "    pm.expect(body.error).to.eql('INVALID_MATCH_STATE');",
+                  "    pm.expect(body.message).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.path).to.eql('/api/matches/' + pm.collectionVariables.get('matchId'));",
+                  "    pm.expect(body.timestamp, 'ISO-8601 UTC').to.match(/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/matches/{{matchId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "matches",
+                "{{matchId}}"
+              ]
+            },
+            "description": "FINISHED is terminal: a finished match cannot go back to SCHEDULED.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"groupId\": \"{{groupId}}\",\n  \"homeTeamId\": \"{{homeTeamId}}\",\n  \"awayTeamId\": \"{{awayTeamId}}\",\n  \"startTime\": \"{{kickoff}}\",\n  \"status\": \"SCHEDULED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Setup: create a tournament to cancel",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('cancelledTournamentId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/tournaments",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tournaments"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Copa cancelada {{runId}}\",\n  \"description\": \"Cancelled by the Postman kit\",\n  \"startDate\": \"{{startDate}}\",\n  \"endDate\": \"{{endDate}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Setup: cancel it",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('tournament is CANCELLED', () => pm.expect(pm.response.json().status).to.eql('CANCELLED'));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PATCH",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/tournaments/{{cancelledTournamentId}}/status",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tournaments",
+                "{{cancelledTournamentId}}",
+                "status"
+              ]
+            },
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"status\": \"CANCELLED\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "TOURNAMENT_NOT_ACTIVE: update the cancelled tournament",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 409', () => pm.response.to.have.status(409));",
+                  "pm.test('contract error envelope with error = TOURNAMENT_NOT_ACTIVE', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(Object.keys(body).sort(), 'envelope fields').to.eql(['error', 'message', 'path', 'status', 'timestamp']);",
+                  "    pm.expect(body.status).to.eql(409);",
+                  "    pm.expect(body.error).to.eql('TOURNAMENT_NOT_ACTIVE');",
+                  "    pm.expect(body.message).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.path).to.eql('/api/tournaments/' + pm.collectionVariables.get('cancelledTournamentId'));",
+                  "    pm.expect(body.timestamp, 'ISO-8601 UTC').to.match(/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "PUT",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/tournaments/{{cancelledTournamentId}}",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tournaments",
+                "{{cancelledTournamentId}}"
+              ]
+            },
+            "description": "CANCELLED and FINISHED are terminal; any change is refused with 409.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"name\": \"Renamed {{runId}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "NOT_FOUND: unknown tournament",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 404', () => pm.response.to.have.status(404));",
+                  "pm.test('contract error envelope with error = NOT_FOUND', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(Object.keys(body).sort(), 'envelope fields').to.eql(['error', 'message', 'path', 'status', 'timestamp']);",
+                  "    pm.expect(body.status).to.eql(404);",
+                  "    pm.expect(body.error).to.eql('NOT_FOUND');",
+                  "    pm.expect(body.message).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.path).to.eql('/api/tournaments/999999999999');",
+                  "    pm.expect(body.timestamp, 'ISO-8601 UTC').to.match(/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$/);",
+                  "});"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tournaments/999999999999",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tournaments",
+                "999999999999"
+              ]
+            }
+          }
+        }
+      ]
+    },
+    {
+      "name": "05 Failover (manual)",
+      "description": "**Manual. Excluded from `scripts/api-tests.sh`.** Companion to `scripts/failover-demo.sh` (docs/demo.md#failover). Run 01-04 first: these requests reuse their tokens and tournament.\n\nBefore any scenario: `scripts/failover-demo.sh status` must show two TOURNAMENT-SERVICE instances (else `scripts/failover-demo.sh restore`). After the demo: `scripts/failover-demo.sh restore`, then `scripts/smoke.sh`.\n\nEach request says which terminal command to run first.",
+      "item": [
+        {
+          "name": "Instance failover: list tournaments (repeat in the Runner)",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                  "pm.test('paged tournament list', () => pm.expect(pm.response.json().content).to.be.an('array'));",
+                  "console.log('GET /api/tournaments ' + pm.response.code + ' in ' + pm.response.responseTime + ' ms');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/tournaments?page=0&size=5",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tournaments"
+              ],
+              "query": [
+                {
+                  "key": "page",
+                  "value": "0"
+                },
+                {
+                  "key": "size",
+                  "value": "5"
+                }
+              ]
+            },
+            "description": "**Terminal first:** `scripts/failover-demo.sh instance`\n\nStart the Runner with only this request at the same time: 420 iterations, 500 ms delay (about 4 min, the whole scenario; 40 iterations cover just the SIGTERM window). Every iteration must be 200: the gateway retries a GET that hits the dead replica on the live one. Expect about ten slow iterations (1-6 s) right after the stop and the kill."
+          }
+        },
+        {
+          "name": "Downstream failover, step 1: create a fresh open match",
+          "event": [
+            {
+              "listen": "prerequest",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "const later = Date.now() + 10 * 24 * 60 * 60 * 1000 + Math.floor(Math.random() * 86400) * 1000;",
+                  "pm.collectionVariables.set('failoverKickoff', new Date(later).toISOString().replace(/\\.\\d{3}Z$/, 'Z'));"
+                ]
+              }
+            },
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "pm.collectionVariables.set('failoverMatchId', pm.response.json().id);"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{adminToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/tournaments/{{tournamentId}}/matches",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "tournaments",
+                "{{tournamentId}}",
+                "matches"
+              ]
+            },
+            "description": "**Send BEFORE starting the scenario**, while both tournament replicas are up: it is a write, and writes are never retried by the gateway. Each send creates a new match, so step 2 can be repeated.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"groupId\": \"{{groupId}}\",\n  \"homeTeamId\": \"{{homeTeamId}}\",\n  \"awayTeamId\": \"{{awayTeamId}}\",\n  \"startTime\": \"{{failoverKickoff}}\"\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Downstream failover, step 2: predict while a tournament replica is dead",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 201', () => pm.response.to.have.status(201));",
+                  "pm.test('prediction accepted with one replica dead', () => pm.expect(pm.response.json().matchId).to.eql(pm.variables.get('failoverMatchId')));",
+                  "console.log('POST /api/predictions ' + pm.response.code + ' in ' + pm.response.responseTime + ' ms');"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{participantToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "POST",
+            "header": [
+              {
+                "key": "Content-Type",
+                "value": "application/json"
+              }
+            ],
+            "url": {
+              "raw": "{{baseUrl}}/api/predictions",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "predictions"
+              ]
+            },
+            "description": "**Terminal first:** `scripts/failover-demo.sh downstream`. Send this as soon as it prints `SIGKILL ...` (the replica stays dead until the script restarts it).\n\nExpect 201. Prediction Service checks the enrolment against tournament-service; an attempt that lands on the dead replica fails its 0.5 s connect timeout and the retry goes to the live one (about 0.7 s, under 3 s). Step 1 again before resending: a second prediction on the same match is `DUPLICATE_PREDICTION`.",
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"matchId\": \"{{failoverMatchId}}\",\n  \"homeScore\": 2,\n  \"awayScore\": 1\n}",
+              "options": {
+                "raw": {
+                  "language": "json"
+                }
+              }
+            }
+          }
+        },
+        {
+          "name": "Service down: my predictions answer 503",
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "type": "text/javascript",
+                "exec": [
+                  "pm.test('HTTP 503', () => pm.response.to.have.status(503));",
+                  "pm.test('contract error envelope with error = DOWNSTREAM_UNAVAILABLE', () => {",
+                  "    const body = pm.response.json();",
+                  "    pm.expect(Object.keys(body).sort(), 'envelope fields').to.eql(['error', 'message', 'path', 'status', 'timestamp']);",
+                  "    pm.expect(body.status).to.eql(503);",
+                  "    pm.expect(body.error).to.eql('DOWNSTREAM_UNAVAILABLE');",
+                  "    pm.expect(body.message).to.be.a('string').and.not.empty;",
+                  "    pm.expect(body.path).to.eql('/api/predictions/me');",
+                  "    pm.expect(body.timestamp, 'ISO-8601 UTC').to.match(/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$/);",
+                  "});",
+                  "pm.test('answered within the gateway time limit (< 8 s)', () => pm.expect(pm.response.responseTime).to.be.below(8000));",
+                  "console.log('503 in ' + pm.response.responseTime + ' ms' + (pm.response.responseTime < 100 ? ' (breaker open)' : ''));"
+                ]
+              }
+            }
+          ],
+          "request": {
+            "auth": {
+              "type": "bearer",
+              "bearer": [
+                {
+                  "key": "token",
+                  "value": "{{participantToken}}",
+                  "type": "string"
+                }
+              ]
+            },
+            "method": "GET",
+            "header": [],
+            "url": {
+              "raw": "{{baseUrl}}/api/predictions/me",
+              "host": [
+                "{{baseUrl}}"
+              ],
+              "path": [
+                "api",
+                "predictions",
+                "me"
+              ]
+            },
+            "description": "**Terminal first:** `scripts/failover-demo.sh service-down`. Send while it prints its twelve probes; prediction-service stays down until it prints `starting prediction-service again`, and the gateway keeps answering 503 for ~15 s more while the replica boots.\n\nFor a slower pace on stage: `docker compose stop prediction-service`, send as often as you like, then `scripts/failover-demo.sh restore`.\n\nExpect `503 DOWNSTREAM_UNAVAILABLE` in the contract envelope. The first call right after the stop can take 3-6 s: the gateway may still hold the stopped replica's address and spends its 2 s connect timeout on each attempt. Once four calls have failed the breaker opens, and every later call answers in milliseconds without trying. Send it two or three times."
+          }
+        }
+      ]
+    },
+    {
+      "name": "06 API reference",
+      "description": "Every endpoint in docs/contracts.md not already exercised in 01-04, grouped by service. 06.1-06.3 are read-only and run in `scripts/api-tests.sh` against the data from 01-04. 06.4 holds the remaining writes, documented with example bodies and never run automatically. Every Score Service endpoint is in 03.",
+      "item": [
+        {
+          "name": "06.1 Auth service",
+          "description": "Read-only.",
+          "item": [
+            {
+              "name": "Public profile of a user",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                      "pm.test('id and username, no email', () => {",
+                      "    pm.expect(Object.keys(pm.response.json()).sort()).to.eql(['id', 'username']);",
+                      "    pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('adminId'));",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{participantToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/users/{{adminId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "users",
+                    "{{adminId}}"
+                  ]
+                },
+                "description": "Any authenticated user. Id and username only, never the email."
+              }
+            },
+            {
+              "name": "Batch profile lookup",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                      "pm.test('two known users, unknown id omitted', () => {",
+                      "    pm.expect(pm.response.json().map((u) => u.id).sort()).to.eql([pm.collectionVariables.get('adminId'), pm.collectionVariables.get('participantId')].sort());",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{participantToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/users/batch?ids={{adminId}},{{participantId}},999999999",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "users",
+                    "batch"
+                  ],
+                  "query": [
+                    {
+                      "key": "ids",
+                      "value": "{{adminId}},{{participantId}},999999999"
+                    }
+                  ]
+                },
+                "description": "Used by Score Service to label rankings. Up to 200 ids; unknown ids are omitted, not errors."
+              }
+            },
+            {
+              "name": "List users (admin)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                      "pm.test('page of profiles', () => {",
+                      "    const page = pm.response.json();",
+                      "    pm.expect(page).to.include.keys('items', 'page', 'size', 'totalElements', 'totalPages');",
+                      "    pm.expect(page.items.length).to.be.at.most(20);",
+                      "    pm.expect(page.totalElements).to.be.at.least(2);",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{adminToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/users?page=0&size=20",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "users"
+                  ],
+                  "query": [
+                    {
+                      "key": "page",
+                      "value": "0"
+                    },
+                    {
+                      "key": "size",
+                      "value": "20"
+                    }
+                  ]
+                },
+                "description": "ADMIN. Paginated (`size` 1..100). Full profiles, including email."
+              }
+            }
+          ]
+        },
+        {
+          "name": "06.2 Tournament service",
+          "description": "Read-only: tournaments, participants, teams, groups, phases, matches.",
+          "item": [
+            {
+              "name": "List active tournaments",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                      "pm.test('paged, ACTIVE only', () => {",
+                      "    const page = pm.response.json();",
+                      "    pm.expect(page).to.include.keys('content', 'totalElements', 'totalPages', 'number', 'size');",
+                      "    page.content.forEach((t) => pm.expect(t.status).to.eql('ACTIVE'));",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{participantToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/tournaments?status=ACTIVE&page=0&size=20",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "tournaments"
+                  ],
+                  "query": [
+                    {
+                      "key": "status",
+                      "value": "ACTIVE"
+                    },
+                    {
+                      "key": "page",
+                      "value": "0"
+                    },
+                    {
+                      "key": "size",
+                      "value": "20"
+                    }
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Get the tournament",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                      "pm.test('the ACTIVE tournament from 01', () => {",
+                      "    const t = pm.response.json();",
+                      "    pm.expect(t.id).to.be.a('string').and.not.empty;",
+                      "    pm.expect(t).to.include.keys('name', 'description', 'status', 'startDate', 'endDate', 'createdBy', 'createdAt', 'updatedAt');",
+                      "    pm.expect(t.id).to.eql(pm.collectionVariables.get('tournamentId'));",
+                      "    pm.expect(t.status).to.eql('ACTIVE');",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{participantToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/tournaments/{{tournamentId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "tournaments",
+                    "{{tournamentId}}"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "List participants",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                      "pm.test('only the participant from 02 joined', () => {",
+                      "    pm.expect(pm.response.json().map((p) => p.userId)).to.eql([pm.collectionVariables.get('participantId')]);",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{participantToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/tournaments/{{tournamentId}}/participants",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "tournaments",
+                    "{{tournamentId}}",
+                    "participants"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "Enrolment check: enrolled",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                      "pm.test('enrolment of the participant', () => pm.expect(pm.response.json().userId).to.eql(pm.collectionVariables.get('participantId')));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{participantToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/tournaments/{{tournamentId}}/participants/{{participantId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "tournaments",
+                    "{{tournamentId}}",
+                    "participants",
+                    "{{participantId}}"
+                  ]
+                },
+                "description": "The single endpoint Prediction Service uses to decide `NOT_ENROLLED`."
+              }
+            },
+            {
+              "name": "Enrolment check: not enrolled",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('HTTP 404', () => pm.response.to.have.status(404));",
+                      "pm.test('contract error envelope with error = NOT_FOUND', () => {",
+                      "    const body = pm.response.json();",
+                      "    pm.expect(Object.keys(body).sort(), 'envelope fields').to.eql(['error', 'message', 'path', 'status', 'timestamp']);",
+                      "    pm.expect(body.status).to.eql(404);",
+                      "    pm.expect(body.error).to.eql('NOT_FOUND');",
+                      "    pm.expect(body.message).to.be.a('string').and.not.empty;",
+                      "    pm.expect(body.path).to.eql('/api/tournaments/' + pm.collectionVariables.get('tournamentId') + '/participants/' + pm.collectionVariables.get('participant2Id'));",
+                      "    pm.expect(body.timestamp, 'ISO-8601 UTC').to.match(/^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?Z$/);",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{participantToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/tournaments/{{tournamentId}}/participants/{{participant2Id}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "tournaments",
+                    "{{tournamentId}}",
+                    "participants",
+                    "{{participant2Id}}"
+                  ]
+                },
+                "description": "The second participant from 04 never joined: 404, which Prediction Service turns into `403 NOT_ENROLLED`."
+              }
+            },
+            {
+              "name": "List all teams",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                      "pm.test('includes this run\\'s teams', () => {",
+                      "    pm.expect(pm.response.json().map((t) => t.id)).to.include.members([pm.collectionVariables.get('homeTeamId'), pm.collectionVariables.get('awayTeamId')]);",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{participantToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/teams",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "teams"
+                  ]
+                },
+                "description": "The global catalogue. Grows by two teams per run of this collection."
+              }
+            },
+            {
+              "name": "Get a team",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                      "pm.test('the home team', () => {",
+                      "    pm.expect(pm.response.json()).to.include.keys('id', 'name', 'shortName', 'country', 'logoUrl');",
+                      "    pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('homeTeamId'));",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{participantToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/teams/{{homeTeamId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "teams",
+                    "{{homeTeamId}}"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "List the tournament's teams",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                      "pm.test('exactly the two teams', () => {",
+                      "    pm.expect(pm.response.json().map((t) => t.id).sort()).to.eql([pm.collectionVariables.get('homeTeamId'), pm.collectionVariables.get('awayTeamId')].sort());",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{participantToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/tournaments/{{tournamentId}}/teams",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "tournaments",
+                    "{{tournamentId}}",
+                    "teams"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "List the tournament's groups",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                      "pm.test('Grupo A', () => {",
+                      "    const groups = pm.response.json();",
+                      "    pm.expect(groups).to.have.lengthOf(1);",
+                      "    pm.expect(groups[0].id).to.eql(pm.collectionVariables.get('groupId'));",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{participantToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/tournaments/{{tournamentId}}/groups",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "tournaments",
+                    "{{tournamentId}}",
+                    "groups"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "List a group's teams",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                      "pm.test('both teams', () => {",
+                      "    pm.expect(pm.response.json().map((t) => t.id).sort()).to.eql([pm.collectionVariables.get('homeTeamId'), pm.collectionVariables.get('awayTeamId')].sort());",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{participantToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/groups/{{groupId}}/teams",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "groups",
+                    "{{groupId}}",
+                    "teams"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "List the tournament's phases",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                      "pm.test('no phases', () => pm.expect(pm.response.json()).to.eql([]));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{participantToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/tournaments/{{tournamentId}}/phases",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "tournaments",
+                    "{{tournamentId}}",
+                    "phases"
+                  ]
+                },
+                "description": "This kit builds a group stage only, so the list is empty. Phases are created while DRAFT (06.4)."
+              }
+            },
+            {
+              "name": "Get the finished match",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                      "pm.test('FINISHED 2-1, predictions closed', () => {",
+                      "    const m = pm.response.json();",
+                      "    pm.expect(m.status).to.eql('FINISHED');",
+                      "    pm.expect(m.homeScore).to.eql(2);",
+                      "    pm.expect(m.awayScore).to.eql(1);",
+                      "    pm.expect(m.predictionsOpen).to.be.false;",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{participantToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/matches/{{matchId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "matches",
+                    "{{matchId}}"
+                  ]
+                },
+                "description": "Prediction Service calls this on a cache miss."
+              }
+            }
+          ]
+        },
+        {
+          "name": "06.3 Prediction service",
+          "description": "Read-only.",
+          "item": [
+            {
+              "name": "My prediction for a match",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                      "pm.test('the 2-1 prediction', () => pm.expect(pm.response.json().id).to.eql(pm.collectionVariables.get('predictionId')));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{participantToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/predictions/me/match/{{matchId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "predictions",
+                    "me",
+                    "match",
+                    "{{matchId}}"
+                  ]
+                }
+              }
+            },
+            {
+              "name": "All predictions for a match (admin)",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                      "pm.test('one prediction, by the participant', () => {",
+                      "    const rows = pm.response.json();",
+                      "    pm.expect(rows).to.have.lengthOf(1);",
+                      "    pm.expect(rows[0].userId).to.eql(pm.collectionVariables.get('participantId'));",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{adminToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/predictions/match/{{matchId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "predictions",
+                    "match",
+                    "{{matchId}}"
+                  ]
+                },
+                "description": "ADMIN or an internal service token: this is what Score Service reads after `match.finished`. Unpaginated."
+              }
+            },
+            {
+              "name": "A user's predictions in a tournament",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('HTTP 200', () => pm.response.to.have.status(200));",
+                      "pm.test('both predictions of the participant', () => {",
+                      "    pm.expect(pm.response.json().map((p) => p.id).sort()).to.eql([pm.collectionVariables.get('predictionId'), pm.collectionVariables.get('openPredictionId')].sort());",
+                      "});"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{participantToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "GET",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/predictions/user/{{participantId}}/tournament/{{tournamentId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "predictions",
+                    "user",
+                    "{{participantId}}",
+                    "tournament",
+                    "{{tournamentId}}"
+                  ]
+                },
+                "description": "The code allows ADMIN or the user themselves (docs/contracts.md says \"any\")."
+              }
+            }
+          ]
+        },
+        {
+          "name": "06.4 Writes (documented, not run)",
+          "description": "Remaining writes from docs/contracts.md. **Never run by `scripts/api-tests.sh`.** Each targets this run's own data, so sending one by hand does not touch anything else. Bodies are examples.",
+          "item": [
+            {
+              "name": "Update a tournament",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{adminToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/tournaments/{{tournamentId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "tournaments",
+                    "{{tournamentId}}"
+                  ]
+                },
+                "description": "ADMIN. Partial: omitted fields keep their value. Refused with `409 TOURNAMENT_NOT_ACTIVE` once FINISHED or CANCELLED.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Copa API {{runId}} (renamed)\",\n  \"description\": \"Updated by hand\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "Delete a DRAFT tournament",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('204 for a DRAFT tournament, 409 otherwise', () => pm.expect(pm.response.code).to.be.oneOf([204, 409]));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{adminToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "DELETE",
+                "header": [],
+                "url": {
+                  "raw": "{{baseUrl}}/api/tournaments/{{tournamentId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "tournaments",
+                    "{{tournamentId}}"
+                  ]
+                },
+                "description": "ADMIN, only while DRAFT. On the ACTIVE tournament from 01 this answers `409 TOURNAMENT_NOT_ACTIVE`; point it at a DRAFT tournament id to really delete one."
+              }
+            },
+            {
+              "name": "Update a team",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{adminToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/teams/{{homeTeamId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "teams",
+                    "{{homeTeamId}}"
+                  ]
+                },
+                "description": "ADMIN. Full replacement of the team fields.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"name\": \"Local {{runId}}\",\n  \"shortName\": \"L{{runShort}}\",\n  \"country\": \"AR\",\n  \"logoUrl\": \"https://example.com/logo.png\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "Create a phase",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('201 on a DRAFT tournament, 409 otherwise', () => pm.expect(pm.response.code).to.be.oneOf([201, 409]));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{adminToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "POST",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/tournaments/{{tournamentId}}/phases",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "tournaments",
+                    "{{tournamentId}}",
+                    "phases"
+                  ]
+                },
+                "description": "ADMIN, only while DRAFT: on the ACTIVE tournament from 01 this answers `409 TOURNAMENT_NOT_ACTIVE`. `type` is one of GROUP_STAGE, ROUND_OF_16, QUARTER_FINAL, SEMI_FINAL, THIRD_PLACE, FINAL.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"type\": \"SEMI_FINAL\",\n  \"name\": \"Semifinal\",\n  \"displayOrder\": 4\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "Update a match",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('HTTP 200', () => pm.response.to.have.status(200));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{adminToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/matches/{{openMatchId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "matches",
+                    "{{openMatchId}}"
+                  ]
+                },
+                "description": "ADMIN. Full body. Moving the kickoff or the status publishes `match.updated`, which closes predictions in Prediction Service's cache. FINISHED is only reachable through `/result`.",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"groupId\": \"{{groupId}}\",\n  \"homeTeamId\": \"{{homeTeamId}}\",\n  \"awayTeamId\": \"{{awayTeamId}}\",\n  \"startTime\": \"{{openKickoff}}\",\n  \"status\": \"POSTPONED\"\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            },
+            {
+              "name": "Change my prediction",
+              "event": [
+                {
+                  "listen": "test",
+                  "script": {
+                    "type": "text/javascript",
+                    "exec": [
+                      "pm.test('200 while open, 409 PREDICTION_LOCKED once closed', () => pm.expect(pm.response.code).to.be.oneOf([200, 409]));"
+                    ]
+                  }
+                }
+              ],
+              "request": {
+                "auth": {
+                  "type": "bearer",
+                  "bearer": [
+                    {
+                      "key": "token",
+                      "value": "{{participantToken}}",
+                      "type": "string"
+                    }
+                  ]
+                },
+                "method": "PUT",
+                "header": [
+                  {
+                    "key": "Content-Type",
+                    "value": "application/json"
+                  }
+                ],
+                "url": {
+                  "raw": "{{baseUrl}}/api/predictions/{{openPredictionId}}",
+                  "host": [
+                    "{{baseUrl}}"
+                  ],
+                  "path": [
+                    "api",
+                    "predictions",
+                    "{{openPredictionId}}"
+                  ]
+                },
+                "description": "PLAYER, own prediction only, while the match is open (`PREDICTION_LOCKED` otherwise; after \"Update a match\" postponed it, expect that).",
+                "body": {
+                  "mode": "raw",
+                  "raw": "{\n  \"homeScore\": 1,\n  \"awayScore\": 0\n}",
+                  "options": {
+                    "raw": {
+                      "language": "json"
+                    }
+                  }
+                }
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "variable": [
+    {
+      "key": "runId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "runShort",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "startDate",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "endDate",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "kickoff",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "openKickoff",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "failoverKickoff",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "adminToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "adminId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "tournamentId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "homeTeamId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "awayTeamId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "groupId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "matchId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "openMatchId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "failoverMatchId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "participantUsername",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "participantEmail",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "participantPassword",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "participantId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "participantToken",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "predictionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "openPredictionId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "participant2Username",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "participant2Password",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "participant2Id",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "participant2Token",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "cancelledTournamentId",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "pollAttempt",
+      "value": "",
+      "type": "string"
+    },
+    {
+      "key": "frontendOrigin",
+      "value": "http://localhost:3000",
+      "type": "string"
+    }
+  ]
+}

@@ -91,6 +91,21 @@ spring:
     activate:
       on-profile: docker
 
+# Demo-speed discovery for the containerised stack, so a stopped or new
+# replica shows up in every client's routing table within seconds instead of
+# the ~90 s the defaults add up to. Local ./mvnw runs keep the defaults; CI
+# runs with Eureka disabled. Same values in every service; see
+# docs/demo.md#failover.
+eureka:
+  instance:
+    lease-renewal-interval-in-seconds: 5
+    # Eureka's Lease doubles this: renew() stores now+duration and isExpired()
+    # adds duration again. 10 s means a SIGKILLed replica is evicted ~20 s
+    # after its last heartbeat.
+    lease-expiration-duration-in-seconds: 10
+  client:
+    registry-fetch-interval-seconds: 5
+
 logging:
   # Structured JSON so Promtail can lift level/traceId into Loki labels.
   structured:

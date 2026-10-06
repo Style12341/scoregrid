@@ -53,7 +53,7 @@
       },
       "targets": [
         {
-          "expr": "sum(up{job=\"scoregrid-services\"})",
+          "expr": "count(count by (service) (up{job=\"scoregrid-services\"} == 1)) or vector(0)",
           "refId": "A"
         }
       ],

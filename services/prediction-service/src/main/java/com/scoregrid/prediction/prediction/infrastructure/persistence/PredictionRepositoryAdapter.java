@@ -2,6 +2,9 @@ package com.scoregrid.prediction.prediction.infrastructure.persistence;
 
 import com.scoregrid.prediction.prediction.domain.model.Prediction;
 import com.scoregrid.prediction.prediction.domain.port.out.PredictionRepository;
+import com.scoregrid.prediction.shared.error.DomainException;
+import com.scoregrid.prediction.shared.error.ErrorKind;
+import org.springframework.dao.DuplicateKeyException;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Component;
@@ -18,11 +21,23 @@ class PredictionRepositoryAdapter implements PredictionRepository {
         this.mongoRepo = mongoRepo;
     }
 
+    /**
+     * The unique index on (userId, matchId) is the duplicate rule (AGENTS.md
+     * hard rule 7). The service's existsBy check only gives the common case a
+     * clean error first: two concurrent requests both pass it, and the loser's
+     * insert lands here. That is the same 409 the check would have given, not
+     * a 500.
+     */
     @Override
     public Prediction save(Prediction prediction) {
         PredictionDocument doc = PredictionMapper.toDocument(prediction);
-        PredictionDocument saved = mongoRepo.save(doc);
-        return PredictionMapper.toDomain(saved);
+        try {
+            PredictionDocument saved = mongoRepo.save(doc);
+            return PredictionMapper.toDomain(saved);
+        } catch (DuplicateKeyException e) {
+            throw new DomainException(ErrorKind.CONFLICT, "DUPLICATE_PREDICTION",
+                    "You already have a prediction for this match.");
+        }
     }
 
     @Override

@@ -2,42 +2,50 @@ package com.scoregrid.score.shared.config;
 
 import com.scoregrid.score.shared.error.DomainException;
 import io.github.resilience4j.circuitbreaker.CircuitBreakerConfig;
+import io.github.resilience4j.core.IntervalFunction;
 import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryConfig;
 import io.github.resilience4j.timelimiter.TimeLimiterConfig;
+import io.github.resilience4j.timelimiter.TimeLimiterRegistry;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.cloud.circuitbreaker.resilience4j.Resilience4JCircuitBreakerFactory;
 import org.springframework.cloud.circuitbreaker.resilience4j.Resilience4JConfigBuilder;
 import org.springframework.cloud.client.circuitbreaker.Customizer;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.web.client.ResourceAccessException;
 
 import java.time.Duration;
 
 /**
- * Circuit breakers for this service's outbound calls.
+ * Circuit breaker, retry and time limit for the call to prediction-service.
  *
- * <p>IMPORTANT — read before adding resilience config anywhere else:
- * spring-cloud-starter-circuitbreaker-resilience4j pulls in ONLY
- * resilience4j-circuitbreaker and resilience4j-timelimiter. It does NOT pull in
- * resilience4j-spring-boot. That means:
- * <ul>
- *   <li>The {@code resilience4j.circuitbreaker.instances.*} YAML namespace does
- *       NOT bind. Configuring it in application.yml is a silent no-op.</li>
- *   <li>The {@code @CircuitBreaker} / {@code @Retry} annotations are NOT
- *       available.</li>
- *   <li>Instances are configured here, in Java, and used through
- *       {@code CircuitBreakerFactory}.</li>
- * </ul>
- *
- * <p>Retry needs an explicit {@code io.github.resilience4j:resilience4j-retry}
- * dependency, or a RestClient request interceptor. Decide once and do it the
- * same way in every service — see docs/contracts.md.
+ * <p>Configured here in Java, not under {@code resilience4j.*} in YAML, like
+ * every other service (AGENTS.md §5). One HTTP request runs as: breaker, then
+ * time limiter, then retry, then the request itself through the
+ * {@code @LoadBalanced} RestClient.
  */
 @Configuration
 public class ResilienceConfig {
 
+    private static final Logger log = LoggerFactory.getLogger(ResilienceConfig.class);
+
     /** Named instance for this service's outbound dependency: predictionClient */
     public static final String PREDICTION_CLIENT = "predictionClient";
+
+    /** Attempts per HTTP request, the first one included. */
+    private static final int MAX_ATTEMPTS = 3;
+
+    /** Wait before the second attempt; it doubles before the third: 200 ms, 400 ms. */
+    private static final Duration FIRST_BACKOFF = Duration.ofMillis(200);
+
+    /**
+     * 0.5 s connect timeout to a dead replica + 0.2 s back-off + 1.5 s read on
+     * the live one (scoregrid.clients.*); every attempt dead is less:
+     * 3 x 0.5 s + 0.2 s + 0.4 s = 2.1 s.
+     */
+    private static final Duration TIME_LIMIT = Duration.ofMillis(2200);
 
     @Bean
     Customizer<Resilience4JCircuitBreakerFactory> defaultCircuitBreakerCustomizer() {
@@ -48,9 +56,6 @@ public class ResilienceConfig {
                         .failureRateThreshold(50f)
                         .waitDurationInOpenState(Duration.ofSeconds(10))
                         .permittedNumberOfCallsInHalfOpenState(5)
-                        .build())
-                .timeLimiterConfig(TimeLimiterConfig.custom()
-                        .timeoutDuration(Duration.ofSeconds(3))
                         .build())
                 .build());
     }
@@ -63,20 +68,53 @@ public class ResilienceConfig {
                         .minimumNumberOfCalls(10)
                         .failureRateThreshold(50f)
                         .waitDurationInOpenState(Duration.ofSeconds(15))
-                        .build())
-                .timeLimiterConfig(TimeLimiterConfig.custom()
-                        .timeoutDuration(Duration.ofSeconds(3))
                         .build()), PREDICTION_CLIENT);
     }
 
+    /**
+     * Retries one HTTP request on any failure but a DomainException. Every
+     * attempt is a new request through the LoadBalancer, so after a dead
+     * replica the next attempt goes to the other one. Each retry logs one
+     * WARN line, so a failover shows up in Loki.
+     */
     @Bean
     Retry predictionClientRetry() {
-        return Retry.of(PREDICTION_CLIENT, RetryConfig.custom()
-                .maxAttempts(3)
-                .waitDuration(Duration.ofMillis(100))
-                .intervalFunction(attempt -> (long) (100 * Math.pow(2, attempt)))
+        Retry retry = Retry.of(PREDICTION_CLIENT, RetryConfig.custom()
+                .maxAttempts(MAX_ATTEMPTS)
+                .intervalFunction(IntervalFunction.ofExponentialBackoff(FIRST_BACKOFF, 2))
                 .retryExceptions(Exception.class)
                 .ignoreExceptions(DomainException.class)
+                .build());
+        retry.getEventPublisher().onRetry(event -> log.warn("Retrying {} request (retry {} of {}) after {}",
+                event.getName(), event.getNumberOfRetryAttempts(), MAX_ATTEMPTS - 1,
+                causeName(event.getLastThrowable())));
+        return retry;
+    }
+
+    /**
+     * The failure without RestClient's ResourceAccessException around it, which
+     * says nothing on its own: ConnectException, HttpConnectTimeoutException,
+     * HttpTimeoutException (read), InternalServerError (a 5xx).
+     */
+    private static String causeName(Throwable failure) {
+        Throwable cause = failure instanceof ResourceAccessException && failure.getCause() != null
+                ? failure.getCause()
+                : failure;
+        return cause.getClass().getSimpleName();
+    }
+
+    /**
+     * The breakers' time limiter, as the registry default. Not set through
+     * {@code configureDefault}/{@code configure} above: Spring Cloud
+     * CircuitBreaker 5.0.2 takes the time limiter only from this registry and
+     * ignores the builder's {@code timeLimiterConfig}, silently leaving every
+     * breaker at Resilience4J's 1 s default, which cuts the retry off before
+     * it reaches a live replica.
+     */
+    @Bean
+    TimeLimiterRegistry timeLimiterRegistry() {
+        return TimeLimiterRegistry.of(TimeLimiterConfig.custom()
+                .timeoutDuration(TIME_LIMIT)
                 .build());
     }
 }

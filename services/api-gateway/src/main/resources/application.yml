@@ -10,31 +10,97 @@ spring:
       # looks like "the gateway routes nothing and gives no error".
       server:
         webmvc:
+          # Every route carries the same two filters, in this order:
+          #
+          #   CircuitBreaker  outermost. Any failure inside it - connection
+          #                   refused, connect/read timeout, "Unable to find
+          #                   instance", retries exhausted - forwards to
+          #                   FallbackController: 503 DOWNSTREAM_UNAVAILABLE in the
+          #                   contract envelope. Breaker tuning lives in
+          #                   ResilienceConfig, not in YAML. One breaker per
+          #                   downstream service, so auth and users share one.
+          #   RetryReads      inside the breaker. A GET whose connection could not
+          #                   be opened (refused, no route to host, connect
+          #                   timeout) is retried twice, 1 s apart. The lb() filter
+          #                   that resolves lb://<service> runs inside the retry, so
+          #                   each attempt asks the LoadBalancer again and lands on
+          #                   the next replica: that is the failover. A read
+          #                   timeout is not retried: the replica has the request
+          #                   and is slow, and a second read would double its load.
+          #                   Writes are never retried: a POST that timed out may
+          #                   already have been applied downstream, and replaying
+          #                   it could register a user or load a result twice.
+          #
+          # Downstream responses (404, 409, even a downstream's own 503) are not
+          # failures here; they pass through untouched.
           routes:
             - id: auth
               uri: ${SCOREGRID_ROUTES_AUTH_URI:lb://auth-service}
               predicates:
                 - Path=/api/auth/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    id: auth-service
+                    fallbackUri: forward:/fallback/auth-service
+                # GET only, when the connection could not be opened; read
+                # timeouts and writes are never replayed. Why not the stock
+                # Retry filter: see ReadRetryFilterFunctions.
+                - RetryReads=2
 
             - id: users
               uri: ${SCOREGRID_ROUTES_AUTH_URI:lb://auth-service}
               predicates:
                 - Path=/api/users/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    id: auth-service
+                    fallbackUri: forward:/fallback/auth-service
+                - RetryReads=2
 
             - id: tournament
               uri: ${SCOREGRID_ROUTES_TOURNAMENT_URI:lb://tournament-service}
               predicates:
                 - Path=/api/tournaments/**,/api/teams/**,/api/groups/**,/api/phases/**,/api/matches/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    id: tournament-service
+                    fallbackUri: forward:/fallback/tournament-service
+                - RetryReads=2
 
             - id: prediction
               uri: ${SCOREGRID_ROUTES_PREDICTION_URI:lb://prediction-service}
               predicates:
                 - Path=/api/predictions/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    id: prediction-service
+                    fallbackUri: forward:/fallback/prediction-service
+                - RetryReads=2
 
             - id: score
               uri: ${SCOREGRID_ROUTES_SCORE_URI:lb://score-service}
               predicates:
                 - Path=/api/rankings/**
+              filters:
+                - name: CircuitBreaker
+                  args:
+                    id: score-service
+                    fallbackUri: forward:/fallback/score-service
+                - RetryReads=2
+
+  http:
+    clients:
+      # The proxy's HTTP client. Without these a request routed to a dead
+      # instance hangs on the OS TCP timeout (observed: 14-39 s) before failing.
+      # Boot 4 property names; spring.http.client.* (singular) is the
+      # deprecated 3.x namespace. ResilienceConfig's 8 s time limit is sized
+      # from these (connect + 1 s back-off + read): change them together.
+      connect-timeout: ${SCOREGRID_GATEWAY_CONNECT_TIMEOUT:2s}
+      read-timeout: ${SCOREGRID_GATEWAY_READ_TIMEOUT:5s}
 
   threads:
     virtual:
@@ -67,7 +133,8 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info,metrics,prometheus,gateway
+        # No "gateway": Gateway Server WebMvc 5.0.2 has no such actuator endpoint.
+        include: health,info,metrics,prometheus
   endpoint:
     health:
       probes:
@@ -96,6 +163,25 @@ spring:
   config:
     activate:
       on-profile: docker
+  cloud:
+    loadbalancer:
+      cache:
+        # Default 35 s. See the discovery note below.
+        ttl: 5s
+
+# Demo-speed discovery for the containerised stack. A stopped or new replica
+# reaches the routing table in seconds instead of the ~90 s the defaults add up
+# to (30 s fetch + 30 s Eureka response cache + 35 s LoadBalancer cache).
+# Local ./mvnw runs keep the defaults; CI runs with Eureka disabled.
+eureka:
+  instance:
+    lease-renewal-interval-in-seconds: 5
+    # Eureka's Lease doubles this: renew() stores now+duration and isExpired()
+    # adds duration again. 10 s means a SIGKILLed replica is evicted ~20 s
+    # after its last heartbeat.
+    lease-expiration-duration-in-seconds: 10
+  client:
+    registry-fetch-interval-seconds: 5
 
 logging:
   structured:

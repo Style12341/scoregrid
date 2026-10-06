@@ -372,7 +372,14 @@ export function TournamentDetailPage() {
                 </p>
               )}
             </div>
-            <TournamentStatusBadge status={tournament.status} />
+            <div className="flex shrink-0 items-center gap-2">
+              {(tournament.status === "ACTIVE" || tournament.status === "FINISHED") && (
+                <Button asChild size="sm" variant="secondary">
+                  <Link to={`/rankings/tournament/${tournament.id}`}>Ver ranking</Link>
+                </Button>
+              )}
+              <TournamentStatusBadge status={tournament.status} />
+            </div>
           </div>
 
           <div className="flex items-center gap-4 text-sm text-muted-foreground">

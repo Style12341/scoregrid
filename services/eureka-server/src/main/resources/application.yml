@@ -45,6 +45,16 @@ spring:
     activate:
       on-profile: docker
 
+# Demo-speed registry for the containerised stack (defaults: 60 s eviction
+# sweep, 30 s read-only response cache). Together with the clients' 5 s
+# heartbeats and fetches, a replica that stops or starts is visible to the
+# gateway within seconds. Self-preservation is already off above, so expired
+# leases are actually evicted.
+eureka:
+  server:
+    eviction-interval-timer-in-ms: 5000
+    response-cache-update-interval-ms: 5000
+
 logging:
   structured:
     format:
