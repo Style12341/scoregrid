@@ -3,8 +3,8 @@ package com.scoregrid.tournament.phase.infrastructure.web;
 import com.scoregrid.tournament.shared.error.GlobalExceptionHandler;
 import com.scoregrid.tournament.phase.domain.model.Phase;
 import com.scoregrid.tournament.phase.domain.model.PhaseType;
-import com.scoregrid.tournament.phase.domain.port.in.CreatePhase;
-import com.scoregrid.tournament.phase.domain.port.in.ListPhases;
+import com.scoregrid.tournament.phase.domain.port.in.CreatePhaseUseCase;
+import com.scoregrid.tournament.phase.domain.port.in.ListPhasesUseCase;
 import com.scoregrid.tournament.shared.error.DomainException;
 import com.scoregrid.tournament.shared.error.ErrorKind;
 import org.junit.jupiter.api.BeforeEach;
@@ -37,10 +37,10 @@ class PhaseControllerTest {
     private MockMvc mockMvc;
 
     @MockitoBean
-    private CreatePhase createPhase;
+    private CreatePhaseUseCase createPhase;
 
     @MockitoBean
-    private ListPhases listPhases;
+    private ListPhasesUseCase listPhases;
 
     private Phase phase;
 

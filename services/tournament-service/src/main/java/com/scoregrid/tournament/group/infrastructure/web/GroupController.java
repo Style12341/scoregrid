@@ -1,9 +1,9 @@
 package com.scoregrid.tournament.group.infrastructure.web;
 
-import com.scoregrid.tournament.group.domain.port.in.AssignTeamsToGroup;
-import com.scoregrid.tournament.group.domain.port.in.CreateGroup;
-import com.scoregrid.tournament.group.domain.port.in.GetGroupTeams;
-import com.scoregrid.tournament.group.domain.port.in.ListGroups;
+import com.scoregrid.tournament.group.domain.port.in.AssignTeamsToGroupUseCase;
+import com.scoregrid.tournament.group.domain.port.in.CreateGroupUseCase;
+import com.scoregrid.tournament.group.domain.port.in.GetGroupTeamsUseCase;
+import com.scoregrid.tournament.group.domain.port.in.ListGroupsUseCase;
 import com.scoregrid.tournament.group.infrastructure.web.dto.AssignTeamsRequest;
 import com.scoregrid.tournament.group.infrastructure.web.dto.CreateGroupRequest;
 import com.scoregrid.tournament.group.infrastructure.web.dto.GroupResponse;
@@ -23,13 +23,13 @@ import java.util.List;
 @RestController
 class GroupController {
 
-    private final CreateGroup createGroup;
-    private final ListGroups listGroups;
-    private final AssignTeamsToGroup assignTeamsToGroup;
-    private final GetGroupTeams getGroupTeams;
+    private final CreateGroupUseCase createGroup;
+    private final ListGroupsUseCase listGroups;
+    private final AssignTeamsToGroupUseCase assignTeamsToGroup;
+    private final GetGroupTeamsUseCase getGroupTeams;
 
-    GroupController(CreateGroup createGroup, ListGroups listGroups,
-                    AssignTeamsToGroup assignTeamsToGroup, GetGroupTeams getGroupTeams) {
+    GroupController(CreateGroupUseCase createGroup, ListGroupsUseCase listGroups,
+                    AssignTeamsToGroupUseCase assignTeamsToGroup, GetGroupTeamsUseCase getGroupTeams) {
         this.createGroup = createGroup;
         this.listGroups = listGroups;
         this.assignTeamsToGroup = assignTeamsToGroup;
@@ -40,7 +40,7 @@ class GroupController {
     @PreAuthorize("hasRole('ADMIN')")
     ResponseEntity<GroupResponse> create(@PathVariable Long id,
                                           @Valid @RequestBody CreateGroupRequest request) {
-        var cmd = new CreateGroup.Command(id, request.name(), request.displayOrder());
+        var cmd = new CreateGroupUseCase.Command(id, request.name(), request.displayOrder());
         var group = createGroup.execute(cmd);
         var response = GroupResponse.from(group);
         return ResponseEntity.created(URI.create("/api/groups/" + response.id())).body(response);
@@ -58,7 +58,7 @@ class GroupController {
     ResponseEntity<List<TeamResponse>> assignTeams(@PathVariable Long groupId,
                                                     @Valid @RequestBody AssignTeamsRequest request) {
         var teamIds = request.teamIds().stream().map(value -> parseId(value, "teamId")).toList();
-        var cmd = new AssignTeamsToGroup.Command(groupId, teamIds);
+        var cmd = new AssignTeamsToGroupUseCase.Command(groupId, teamIds);
         var teams = assignTeamsToGroup.execute(cmd);
         var response = teams.stream().map(TeamResponse::from).toList();
         return ResponseEntity.ok(response);

@@ -1,11 +1,11 @@
 package com.scoregrid.tournament.team.infrastructure.web;
 
-import com.scoregrid.tournament.team.domain.port.in.AssignTeamsToTournament;
-import com.scoregrid.tournament.team.domain.port.in.CreateTeam;
-import com.scoregrid.tournament.team.domain.port.in.GetTeam;
-import com.scoregrid.tournament.team.domain.port.in.GetTournamentTeams;
-import com.scoregrid.tournament.team.domain.port.in.ListTeams;
-import com.scoregrid.tournament.team.domain.port.in.UpdateTeam;
+import com.scoregrid.tournament.team.domain.port.in.AssignTeamsToTournamentUseCase;
+import com.scoregrid.tournament.team.domain.port.in.CreateTeamUseCase;
+import com.scoregrid.tournament.team.domain.port.in.GetTeamUseCase;
+import com.scoregrid.tournament.team.domain.port.in.GetTournamentTeamsUseCase;
+import com.scoregrid.tournament.team.domain.port.in.ListTeamsUseCase;
+import com.scoregrid.tournament.team.domain.port.in.UpdateTeamUseCase;
 import com.scoregrid.tournament.team.infrastructure.web.dto.AssignTeamsRequest;
 import com.scoregrid.tournament.team.infrastructure.web.dto.CreateTeamRequest;
 import com.scoregrid.tournament.team.infrastructure.web.dto.TeamResponse;
@@ -26,16 +26,16 @@ import java.util.List;
 @RestController
 class TeamController {
 
-    private final CreateTeam createTeam;
-    private final GetTeam getTeam;
-    private final ListTeams listTeams;
-    private final UpdateTeam updateTeam;
-    private final AssignTeamsToTournament assignTeamsToTournament;
-    private final GetTournamentTeams getTournamentTeams;
+    private final CreateTeamUseCase createTeam;
+    private final GetTeamUseCase getTeam;
+    private final ListTeamsUseCase listTeams;
+    private final UpdateTeamUseCase updateTeam;
+    private final AssignTeamsToTournamentUseCase assignTeamsToTournament;
+    private final GetTournamentTeamsUseCase getTournamentTeams;
 
-    TeamController(CreateTeam createTeam, GetTeam getTeam, ListTeams listTeams,
-                   UpdateTeam updateTeam, AssignTeamsToTournament assignTeamsToTournament,
-                   GetTournamentTeams getTournamentTeams) {
+    TeamController(CreateTeamUseCase createTeam, GetTeamUseCase getTeam, ListTeamsUseCase listTeams,
+                   UpdateTeamUseCase updateTeam, AssignTeamsToTournamentUseCase assignTeamsToTournament,
+                   GetTournamentTeamsUseCase getTournamentTeams) {
         this.createTeam = createTeam;
         this.getTeam = getTeam;
         this.listTeams = listTeams;
@@ -47,7 +47,7 @@ class TeamController {
     @PostMapping("/api/teams")
     @PreAuthorize("hasRole('ADMIN')")
     ResponseEntity<TeamResponse> create(@Valid @RequestBody CreateTeamRequest request) {
-        var command = new CreateTeam.Command(request.name(), request.shortName(),
+        var command = new CreateTeamUseCase.Command(request.name(), request.shortName(),
                 request.country(), request.logoUrl());
         var team = createTeam.execute(command);
         var response = TeamResponse.from(team);
@@ -71,7 +71,7 @@ class TeamController {
     @PreAuthorize("hasRole('ADMIN')")
     ResponseEntity<TeamResponse> update(@PathVariable Long id,
                                          @Valid @RequestBody UpdateTeamRequest request) {
-        var command = new UpdateTeam.Command(id, request.name(), request.shortName(),
+        var command = new UpdateTeamUseCase.Command(id, request.name(), request.shortName(),
                 request.country(), request.logoUrl());
         var team = updateTeam.execute(command);
         return ResponseEntity.ok(TeamResponse.from(team));
@@ -81,7 +81,7 @@ class TeamController {
     @PreAuthorize("hasRole('ADMIN')")
     ResponseEntity<List<TeamResponse>> assignTeams(@PathVariable Long id,
                                                      @Valid @RequestBody AssignTeamsRequest request) {
-        var command = new AssignTeamsToTournament.Command(id, request.teamIds());
+        var command = new AssignTeamsToTournamentUseCase.Command(id, request.teamIds());
         var teams = assignTeamsToTournament.execute(command);
         var response = teams.stream().map(TeamResponse::from).toList();
         return ResponseEntity.ok(response);

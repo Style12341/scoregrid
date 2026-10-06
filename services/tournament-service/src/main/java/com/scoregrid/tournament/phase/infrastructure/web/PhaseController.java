@@ -1,7 +1,7 @@
 package com.scoregrid.tournament.phase.infrastructure.web;
 
-import com.scoregrid.tournament.phase.domain.port.in.CreatePhase;
-import com.scoregrid.tournament.phase.domain.port.in.ListPhases;
+import com.scoregrid.tournament.phase.domain.port.in.CreatePhaseUseCase;
+import com.scoregrid.tournament.phase.domain.port.in.ListPhasesUseCase;
 import com.scoregrid.tournament.phase.infrastructure.web.dto.CreatePhaseRequest;
 import com.scoregrid.tournament.phase.infrastructure.web.dto.PhaseResponse;
 import jakarta.validation.Valid;
@@ -19,10 +19,10 @@ import java.util.List;
 @RestController
 class PhaseController {
 
-    private final CreatePhase createPhase;
-    private final ListPhases listPhases;
+    private final CreatePhaseUseCase createPhase;
+    private final ListPhasesUseCase listPhases;
 
-    PhaseController(CreatePhase createPhase, ListPhases listPhases) {
+    PhaseController(CreatePhaseUseCase createPhase, ListPhasesUseCase listPhases) {
         this.createPhase = createPhase;
         this.listPhases = listPhases;
     }
@@ -31,7 +31,7 @@ class PhaseController {
     @PreAuthorize("hasRole('ADMIN')")
     ResponseEntity<PhaseResponse> create(@PathVariable Long id,
                                           @Valid @RequestBody CreatePhaseRequest request) {
-        var cmd = new CreatePhase.Command(id, request.type(), request.name(), request.displayOrder());
+        var cmd = new CreatePhaseUseCase.Command(id, request.type(), request.name(), request.displayOrder());
         var phase = createPhase.execute(cmd);
         var response = PhaseResponse.from(phase);
         return ResponseEntity.created(URI.create("/api/phases/" + response.id())).body(response);

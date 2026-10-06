@@ -1,11 +1,11 @@
 package com.scoregrid.tournament.match.infrastructure.web;
 
 import com.scoregrid.tournament.match.domain.model.MatchStatus;
-import com.scoregrid.tournament.match.domain.port.in.CreateMatch;
-import com.scoregrid.tournament.match.domain.port.in.GetMatch;
-import com.scoregrid.tournament.match.domain.port.in.ListMatches;
-import com.scoregrid.tournament.match.domain.port.in.SetMatchResult;
-import com.scoregrid.tournament.match.domain.port.in.UpdateMatch;
+import com.scoregrid.tournament.match.domain.port.in.CreateMatchUseCase;
+import com.scoregrid.tournament.match.domain.port.in.GetMatchUseCase;
+import com.scoregrid.tournament.match.domain.port.in.ListMatchesUseCase;
+import com.scoregrid.tournament.match.domain.port.in.SetMatchResultUseCase;
+import com.scoregrid.tournament.match.domain.port.in.UpdateMatchUseCase;
 import com.scoregrid.tournament.match.infrastructure.web.dto.CreateMatchRequest;
 import com.scoregrid.tournament.match.infrastructure.web.dto.MatchResponse;
 import com.scoregrid.tournament.match.infrastructure.web.dto.SetMatchResultRequest;
@@ -30,15 +30,15 @@ import java.util.Optional;
 @RestController
 class MatchController {
 
-    private final CreateMatch createMatch;
-    private final GetMatch getMatch;
-    private final ListMatches listMatches;
-    private final UpdateMatch updateMatch;
-    private final SetMatchResult setMatchResult;
+    private final CreateMatchUseCase createMatch;
+    private final GetMatchUseCase getMatch;
+    private final ListMatchesUseCase listMatches;
+    private final UpdateMatchUseCase updateMatch;
+    private final SetMatchResultUseCase setMatchResult;
 
-    MatchController(CreateMatch createMatch, GetMatch getMatch,
-                    ListMatches listMatches, UpdateMatch updateMatch,
-                    SetMatchResult setMatchResult) {
+    MatchController(CreateMatchUseCase createMatch, GetMatchUseCase getMatch,
+                    ListMatchesUseCase listMatches, UpdateMatchUseCase updateMatch,
+                    SetMatchResultUseCase setMatchResult) {
         this.createMatch = createMatch;
         this.getMatch = getMatch;
         this.listMatches = listMatches;
@@ -53,7 +53,7 @@ class MatchController {
         Long groupId = parseId(request.groupId(), "groupId");
         Long phaseId = parseId(request.phaseId(), "phaseId");
 
-        var cmd = new CreateMatch.Command(id, groupId, phaseId,
+        var cmd = new CreateMatchUseCase.Command(id, groupId, phaseId,
                 parseId(request.homeTeamId(), "homeTeamId"),
                 parseId(request.awayTeamId(), "awayTeamId"),
                 request.startTime());
@@ -92,7 +92,7 @@ class MatchController {
         Long groupId = parseId(request.groupId(), "groupId");
         Long phaseId = parseId(request.phaseId(), "phaseId");
 
-        var cmd = new UpdateMatch.Command(id, groupId, phaseId,
+        var cmd = new UpdateMatchUseCase.Command(id, groupId, phaseId,
                 parseId(request.homeTeamId(), "homeTeamId"),
                 parseId(request.awayTeamId(), "awayTeamId"),
                 request.startTime(), request.status());
@@ -104,7 +104,7 @@ class MatchController {
     @PreAuthorize("hasRole('ADMIN')")
     ResponseEntity<Void> setResult(@PathVariable Long id,
                                     @Valid @RequestBody SetMatchResultRequest request) {
-        var cmd = new SetMatchResult.Command(id, request.homeScore(), request.awayScore());
+        var cmd = new SetMatchResultUseCase.Command(id, request.homeScore(), request.awayScore());
         setMatchResult.execute(cmd);
         return ResponseEntity.noContent().build();
     }

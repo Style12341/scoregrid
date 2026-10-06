@@ -4,11 +4,11 @@ import com.scoregrid.tournament.shared.error.GlobalExceptionHandler;
 import com.scoregrid.tournament.match.domain.model.Match;
 import com.scoregrid.tournament.match.domain.model.MatchStatus;
 import com.scoregrid.tournament.match.domain.model.TeamRef;
-import com.scoregrid.tournament.match.domain.port.in.CreateMatch;
-import com.scoregrid.tournament.match.domain.port.in.GetMatch;
-import com.scoregrid.tournament.match.domain.port.in.ListMatches;
-import com.scoregrid.tournament.match.domain.port.in.SetMatchResult;
-import com.scoregrid.tournament.match.domain.port.in.UpdateMatch;
+import com.scoregrid.tournament.match.domain.port.in.CreateMatchUseCase;
+import com.scoregrid.tournament.match.domain.port.in.GetMatchUseCase;
+import com.scoregrid.tournament.match.domain.port.in.ListMatchesUseCase;
+import com.scoregrid.tournament.match.domain.port.in.SetMatchResultUseCase;
+import com.scoregrid.tournament.match.domain.port.in.UpdateMatchUseCase;
 import com.scoregrid.tournament.shared.error.DomainException;
 import com.scoregrid.tournament.shared.error.ErrorKind;
 import org.junit.jupiter.api.BeforeEach;
@@ -47,19 +47,19 @@ class MatchControllerTest {
     private MockMvc mockMvc;
 
     @MockitoBean
-    private CreateMatch createMatch;
+    private CreateMatchUseCase createMatch;
 
     @MockitoBean
-    private GetMatch getMatch;
+    private GetMatchUseCase getMatch;
 
     @MockitoBean
-    private ListMatches listMatches;
+    private ListMatchesUseCase listMatches;
 
     @MockitoBean
-    private UpdateMatch updateMatch;
+    private UpdateMatchUseCase updateMatch;
 
     @MockitoBean
-    private SetMatchResult setMatchResult;
+    private SetMatchResultUseCase setMatchResult;
 
     private static final Instant FUTURE = Instant.now().plusSeconds(7200);
 

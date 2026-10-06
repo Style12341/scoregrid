@@ -6,15 +6,15 @@ import com.scoregrid.tournament.shared.security.CurrentUser;
 import com.scoregrid.tournament.tournament.domain.model.Participant;
 import com.scoregrid.tournament.tournament.domain.model.Tournament;
 import com.scoregrid.tournament.tournament.domain.model.TournamentStatus;
-import com.scoregrid.tournament.tournament.domain.port.in.CreateTournament;
-import com.scoregrid.tournament.tournament.domain.port.in.DeleteTournament;
-import com.scoregrid.tournament.tournament.domain.port.in.GetParticipant;
-import com.scoregrid.tournament.tournament.domain.port.in.GetTournament;
-import com.scoregrid.tournament.tournament.domain.port.in.JoinTournament;
-import com.scoregrid.tournament.tournament.domain.port.in.ListParticipants;
-import com.scoregrid.tournament.tournament.domain.port.in.ListTournaments;
-import com.scoregrid.tournament.tournament.domain.port.in.TransitionTournamentStatus;
-import com.scoregrid.tournament.tournament.domain.port.in.UpdateTournament;
+import com.scoregrid.tournament.tournament.domain.port.in.CreateTournamentUseCase;
+import com.scoregrid.tournament.tournament.domain.port.in.DeleteTournamentUseCase;
+import com.scoregrid.tournament.tournament.domain.port.in.GetParticipantUseCase;
+import com.scoregrid.tournament.tournament.domain.port.in.GetTournamentUseCase;
+import com.scoregrid.tournament.tournament.domain.port.in.JoinTournamentUseCase;
+import com.scoregrid.tournament.tournament.domain.port.in.ListParticipantsUseCase;
+import com.scoregrid.tournament.tournament.domain.port.in.ListTournamentsUseCase;
+import com.scoregrid.tournament.tournament.domain.port.in.TransitionTournamentStatusUseCase;
+import com.scoregrid.tournament.tournament.domain.port.in.UpdateTournamentUseCase;
 import com.scoregrid.tournament.shared.error.DomainException;
 import com.scoregrid.tournament.shared.error.ErrorKind;
 import org.junit.jupiter.api.BeforeEach;
@@ -55,31 +55,31 @@ class TournamentControllerTest {
     private MockMvc mockMvc;
 
     @MockitoBean
-    private CreateTournament createTournament;
+    private CreateTournamentUseCase createTournament;
 
     @MockitoBean
-    private GetTournament getTournament;
+    private GetTournamentUseCase getTournament;
 
     @MockitoBean
-    private ListTournaments listTournaments;
+    private ListTournamentsUseCase listTournaments;
 
     @MockitoBean
-    private UpdateTournament updateTournament;
+    private UpdateTournamentUseCase updateTournament;
 
     @MockitoBean
-    private TransitionTournamentStatus transitionTournamentStatus;
+    private TransitionTournamentStatusUseCase transitionTournamentStatus;
 
     @MockitoBean
-    private DeleteTournament deleteTournament;
+    private DeleteTournamentUseCase deleteTournament;
 
     @MockitoBean
-    private JoinTournament joinTournament;
+    private JoinTournamentUseCase joinTournament;
 
     @MockitoBean
-    private ListParticipants listParticipants;
+    private ListParticipantsUseCase listParticipants;
 
     @MockitoBean
-    private GetParticipant getParticipant;
+    private GetParticipantUseCase getParticipant;
 
     @MockitoBean
     private CurrentUser currentUser;
@@ -205,7 +205,7 @@ class TournamentControllerTest {
         @Test
         @WithMockUser
         void shouldListTournaments() throws Exception {
-            var result = new ListTournaments.Result(List.of(draftTournament), 1, 1, 0, 20);
+            var result = new ListTournamentsUseCase.Result(List.of(draftTournament), 1, 1, 0, 20);
             when(listTournaments.execute(any(), eq(0), eq(20))).thenReturn(result);
 
             mockMvc.perform(get("/api/tournaments"))
@@ -217,7 +217,7 @@ class TournamentControllerTest {
         @Test
         @WithMockUser
         void shouldFilterByStatus() throws Exception {
-            var result = new ListTournaments.Result(List.of(activeTournament), 1, 1, 0, 20);
+            var result = new ListTournamentsUseCase.Result(List.of(activeTournament), 1, 1, 0, 20);
             when(listTournaments.execute(eq(Optional.of(TournamentStatus.ACTIVE)), eq(0), eq(20))).thenReturn(result);
 
             mockMvc.perform(get("/api/tournaments?status=ACTIVE"))

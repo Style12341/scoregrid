@@ -2,15 +2,15 @@ package com.scoregrid.tournament.tournament.infrastructure.web;
 
 import com.scoregrid.tournament.shared.security.CurrentUser;
 import com.scoregrid.tournament.tournament.domain.model.TournamentStatus;
-import com.scoregrid.tournament.tournament.domain.port.in.CreateTournament;
-import com.scoregrid.tournament.tournament.domain.port.in.DeleteTournament;
-import com.scoregrid.tournament.tournament.domain.port.in.GetParticipant;
-import com.scoregrid.tournament.tournament.domain.port.in.GetTournament;
-import com.scoregrid.tournament.tournament.domain.port.in.JoinTournament;
-import com.scoregrid.tournament.tournament.domain.port.in.ListParticipants;
-import com.scoregrid.tournament.tournament.domain.port.in.ListTournaments;
-import com.scoregrid.tournament.tournament.domain.port.in.TransitionTournamentStatus;
-import com.scoregrid.tournament.tournament.domain.port.in.UpdateTournament;
+import com.scoregrid.tournament.tournament.domain.port.in.CreateTournamentUseCase;
+import com.scoregrid.tournament.tournament.domain.port.in.DeleteTournamentUseCase;
+import com.scoregrid.tournament.tournament.domain.port.in.GetParticipantUseCase;
+import com.scoregrid.tournament.tournament.domain.port.in.GetTournamentUseCase;
+import com.scoregrid.tournament.tournament.domain.port.in.JoinTournamentUseCase;
+import com.scoregrid.tournament.tournament.domain.port.in.ListParticipantsUseCase;
+import com.scoregrid.tournament.tournament.domain.port.in.ListTournamentsUseCase;
+import com.scoregrid.tournament.tournament.domain.port.in.TransitionTournamentStatusUseCase;
+import com.scoregrid.tournament.tournament.domain.port.in.UpdateTournamentUseCase;
 import com.scoregrid.tournament.tournament.infrastructure.web.dto.CreateTournamentRequest;
 import com.scoregrid.tournament.tournament.infrastructure.web.dto.PagedResponse;
 import com.scoregrid.tournament.tournament.infrastructure.web.dto.ParticipantResponse;
@@ -39,26 +39,26 @@ import java.util.Optional;
 @RequestMapping("/api/tournaments")
 class TournamentController {
 
-    private final CreateTournament createTournament;
-    private final GetTournament getTournament;
-    private final ListTournaments listTournaments;
-    private final UpdateTournament updateTournament;
-    private final TransitionTournamentStatus transitionTournamentStatus;
-    private final DeleteTournament deleteTournament;
-    private final JoinTournament joinTournament;
-    private final ListParticipants listParticipants;
-    private final GetParticipant getParticipant;
+    private final CreateTournamentUseCase createTournament;
+    private final GetTournamentUseCase getTournament;
+    private final ListTournamentsUseCase listTournaments;
+    private final UpdateTournamentUseCase updateTournament;
+    private final TransitionTournamentStatusUseCase transitionTournamentStatus;
+    private final DeleteTournamentUseCase deleteTournament;
+    private final JoinTournamentUseCase joinTournament;
+    private final ListParticipantsUseCase listParticipants;
+    private final GetParticipantUseCase getParticipant;
     private final CurrentUser currentUser;
 
-    TournamentController(CreateTournament createTournament,
-                         GetTournament getTournament,
-                         ListTournaments listTournaments,
-                         UpdateTournament updateTournament,
-                         TransitionTournamentStatus transitionTournamentStatus,
-                         DeleteTournament deleteTournament,
-                         JoinTournament joinTournament,
-                         ListParticipants listParticipants,
-                         GetParticipant getParticipant,
+    TournamentController(CreateTournamentUseCase createTournament,
+                         GetTournamentUseCase getTournament,
+                         ListTournamentsUseCase listTournaments,
+                         UpdateTournamentUseCase updateTournament,
+                         TransitionTournamentStatusUseCase transitionTournamentStatus,
+                         DeleteTournamentUseCase deleteTournament,
+                         JoinTournamentUseCase joinTournament,
+                         ListParticipantsUseCase listParticipants,
+                         GetParticipantUseCase getParticipant,
                          CurrentUser currentUser) {
         this.createTournament = createTournament;
         this.getTournament = getTournament;
@@ -75,7 +75,7 @@ class TournamentController {
     @PostMapping
     @PreAuthorize("hasRole('ADMIN')")
     ResponseEntity<TournamentResponse> create(@Valid @RequestBody CreateTournamentRequest request) {
-        var command = new CreateTournament.Command(
+        var command = new CreateTournamentUseCase.Command(
                 request.name(), request.description(),
                 request.startDate(), request.endDate(),
                 currentUser.requireId());
@@ -121,7 +121,7 @@ class TournamentController {
     @PreAuthorize("hasRole('ADMIN')")
     ResponseEntity<TournamentResponse> update(@PathVariable Long id,
                                                @Valid @RequestBody UpdateTournamentRequest request) {
-        var command = new UpdateTournament.Command(
+        var command = new UpdateTournamentUseCase.Command(
                 id, request.name(), request.description(),
                 request.startDate(), request.endDate());
         var tournament = updateTournament.execute(command);
@@ -142,7 +142,7 @@ class TournamentController {
                     "Invalid status value: " + request.status());
         }
 
-        var command = new TransitionTournamentStatus.Command(id, targetStatus);
+        var command = new TransitionTournamentStatusUseCase.Command(id, targetStatus);
         var tournament = transitionTournamentStatus.execute(command);
         return ResponseEntity.ok(TournamentResponse.from(tournament));
     }
@@ -157,7 +157,7 @@ class TournamentController {
     @PostMapping("/{id}/join")
     @PreAuthorize("hasRole('PLAYER')")
     ResponseEntity<ParticipantResponse> join(@PathVariable Long id) {
-        var command = new JoinTournament.Command(id, currentUser.requireId());
+        var command = new JoinTournamentUseCase.Command(id, currentUser.requireId());
         var participant = joinTournament.execute(command);
         return ResponseEntity.ok(ParticipantResponse.from(participant));
     }

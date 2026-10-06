@@ -2,12 +2,12 @@ package com.scoregrid.tournament.team.infrastructure.web;
 
 import com.scoregrid.tournament.shared.error.GlobalExceptionHandler;
 import com.scoregrid.tournament.team.domain.model.Team;
-import com.scoregrid.tournament.team.domain.port.in.AssignTeamsToTournament;
-import com.scoregrid.tournament.team.domain.port.in.CreateTeam;
-import com.scoregrid.tournament.team.domain.port.in.GetTeam;
-import com.scoregrid.tournament.team.domain.port.in.GetTournamentTeams;
-import com.scoregrid.tournament.team.domain.port.in.ListTeams;
-import com.scoregrid.tournament.team.domain.port.in.UpdateTeam;
+import com.scoregrid.tournament.team.domain.port.in.AssignTeamsToTournamentUseCase;
+import com.scoregrid.tournament.team.domain.port.in.CreateTeamUseCase;
+import com.scoregrid.tournament.team.domain.port.in.GetTeamUseCase;
+import com.scoregrid.tournament.team.domain.port.in.GetTournamentTeamsUseCase;
+import com.scoregrid.tournament.team.domain.port.in.ListTeamsUseCase;
+import com.scoregrid.tournament.team.domain.port.in.UpdateTeamUseCase;
 import com.scoregrid.tournament.shared.error.DomainException;
 import com.scoregrid.tournament.shared.error.ErrorKind;
 import org.junit.jupiter.api.BeforeEach;
@@ -42,22 +42,22 @@ class TeamControllerTest {
     private MockMvc mockMvc;
 
     @MockitoBean
-    private CreateTeam createTeam;
+    private CreateTeamUseCase createTeam;
 
     @MockitoBean
-    private GetTeam getTeam;
+    private GetTeamUseCase getTeam;
 
     @MockitoBean
-    private ListTeams listTeams;
+    private ListTeamsUseCase listTeams;
 
     @MockitoBean
-    private UpdateTeam updateTeam;
+    private UpdateTeamUseCase updateTeam;
 
     @MockitoBean
-    private AssignTeamsToTournament assignTeamsToTournament;
+    private AssignTeamsToTournamentUseCase assignTeamsToTournament;
 
     @MockitoBean
-    private GetTournamentTeams getTournamentTeams;
+    private GetTournamentTeamsUseCase getTournamentTeams;
 
     private Team argTeam;
     private Team braTeam;

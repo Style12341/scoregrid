@@ -2,10 +2,10 @@ package com.scoregrid.tournament.group.infrastructure.web;
 
 import com.scoregrid.tournament.shared.error.GlobalExceptionHandler;
 import com.scoregrid.tournament.group.domain.model.Group;
-import com.scoregrid.tournament.group.domain.port.in.AssignTeamsToGroup;
-import com.scoregrid.tournament.group.domain.port.in.CreateGroup;
-import com.scoregrid.tournament.group.domain.port.in.GetGroupTeams;
-import com.scoregrid.tournament.group.domain.port.in.ListGroups;
+import com.scoregrid.tournament.group.domain.port.in.AssignTeamsToGroupUseCase;
+import com.scoregrid.tournament.group.domain.port.in.CreateGroupUseCase;
+import com.scoregrid.tournament.group.domain.port.in.GetGroupTeamsUseCase;
+import com.scoregrid.tournament.group.domain.port.in.ListGroupsUseCase;
 import com.scoregrid.tournament.shared.error.DomainException;
 import com.scoregrid.tournament.shared.error.ErrorKind;
 import com.scoregrid.tournament.team.domain.model.Team;
@@ -39,16 +39,16 @@ class GroupControllerTest {
     private MockMvc mockMvc;
 
     @MockitoBean
-    private CreateGroup createGroup;
+    private CreateGroupUseCase createGroup;
 
     @MockitoBean
-    private ListGroups listGroups;
+    private ListGroupsUseCase listGroups;
 
     @MockitoBean
-    private AssignTeamsToGroup assignTeamsToGroup;
+    private AssignTeamsToGroupUseCase assignTeamsToGroup;
 
     @MockitoBean
-    private GetGroupTeams getGroupTeams;
+    private GetGroupTeamsUseCase getGroupTeams;
 
     private Group group;
 
