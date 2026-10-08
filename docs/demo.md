@@ -66,14 +66,25 @@ Service reads predictions through REST after the RabbitMQ event.
 
 ## Hand Demo
 
-Plain commands to type during the presentation, in order. Each one says what
-to show. They are the same in bash and fish unless both forms are given.
-[`scripts/failover-demo.sh`](#failover) runs the same failover unattended: it
-is the fallback if typing goes wrong.
+Commands to run during the presentation, in order, each with what to show.
+Paste the long ones rather than typing them. They are the same in bash and
+fish unless both forms are given. Where
+[`scripts/failover-demo.sh`](#failover) does the same step unattended, the
+step says so: it is the fallback if something goes wrong on stage.
 
 Before you start: the stack runs with the observability profile,
-`scripts/smoke.sh` passes, the shell is in the repository root, and
-`scripts/seed.sh` has run once so there are tournaments to show.
+`scripts/smoke.sh` passes, and the shell is in the repository root.
+Timings below were measured on the local stack on 2026-10-08.
+
+### 0. Demo data
+
+```bash
+scripts/seed.sh
+```
+
+Creates the players, teams and tournaments through the gateway, with the
+passwords from `.env` (its header lists the keys it needs; `scripts/seed.sh
+--help` prints it). It is idempotent: a second run creates nothing.
 
 ### 1. Replicas and discovery
 
@@ -96,27 +107,36 @@ docker ps --filter name=tournament-service --format '{{.ID}} {{.Names}}'
 
 ### 2. A token through the gateway
 
-Type the admin password (`SCOREGRID_ADMIN_PASSWORD` in `.env`) after `read`;
-it is not echoed.
+Type the admin password (`SCOREGRID_ADMIN_PASSWORD` in `.env`) after `read`:
+it is not echoed, and `jq` builds the JSON body, so the password never
+appears on a command line.
 
 bash:
 
 ```bash
 read -rs ADMIN_PASSWORD
-TOKEN=$(curl -s -X POST http://localhost:8080/api/auth/login -H 'Content-Type: application/json' -d "{\"usernameOrEmail\":\"admin\",\"password\":\"$ADMIN_PASSWORD\"}" | jq -r .token)
+TOKEN=$(jq -n --arg u admin --arg p "$ADMIN_PASSWORD" '{usernameOrEmail:$u,password:$p}' | curl -s -X POST http://localhost:8080/api/auth/login -H 'Content-Type: application/json' -d @- | jq -r .token)
 ```
 
 fish:
 
 ```fish
 read -s ADMIN_PASSWORD
-set TOKEN (curl -s -X POST http://localhost:8080/api/auth/login -H 'Content-Type: application/json' -d "{\"usernameOrEmail\":\"admin\",\"password\":\"$ADMIN_PASSWORD\"}" | jq -r .token)
+set TOKEN (jq -n --arg u admin --arg p "$ADMIN_PASSWORD" '{usernameOrEmail:$u,password:$p}' | curl -s -X POST http://localhost:8080/api/auth/login -H 'Content-Type: application/json' -d @- | jq -r .token)
 ```
 
 `echo $TOKEN | cut -c1-20` shows the start of the JWT (`eyJhbGciOiJIUzI1NiJ9`).
 auth-service logs `Login succeeded: userId=1`.
 
 ### 3. Load balancing: which replica answered
+
+How many `GET /api/tournaments` each replica has served so far:
+
+```bash
+curl -s http://localhost:9090/api/v1/query --data-urlencode 'query=sum by (instance) (http_server_requests_seconds_count{service="tournament-service", uri="/api/tournaments"})' | jq -r '.data.result[] | .metric.instance + "  " + .value[1]'
+```
+
+Send twenty through the gateway:
 
 bash:
 
@@ -130,15 +150,9 @@ fish:
 for i in (seq 20); curl -s -o /dev/null -w '%{http_code} ' -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/tournaments; end; echo
 ```
 
-Twenty `200`. Wait 15 s (one Prometheus scrape), then count them per replica:
-
-```bash
-curl -s http://localhost:9090/api/v1/query --data-urlencode 'query=round(sum by (instance) (increase(http_server_requests_seconds_count{service="tournament-service", uri="/api/tournaments"}[1m])))' | jq -r '.data.result[] | .metric.instance + "  " + .value[1]'
-```
-
-About half on each instance: the gateway round-robins. `increase`
-extrapolates, so the two numbers do not add up to exactly 20. The gateway logs
-one line per request, with the trace id:
+Twenty `200`. Wait 15 s (one Prometheus scrape) and run the count again: each
+replica went up by 10, because the gateway round-robins. The gateway logs one
+line per request, with its trace id:
 
 ```bash
 docker logs --since 1m sg-api-gateway 2>&1 | jq -rR 'fromjson? | select(.message | startswith("Request handled")) | .traceId + "  " + .message'
@@ -146,56 +160,65 @@ docker logs --since 1m sg-api-gateway 2>&1 | jq -rR 'fromjson? | select(.message
 
 ### 4. Kill a replica: the GET still succeeds
 
+`scripts/failover-demo.sh instance` does this step unattended, with a SIGTERM
+round first.
+
 ```bash
 docker kill scoregrid-tournament-service-2
 ```
 
-Repeat the loop from step 3: still twenty `200`, some taking 3 s. The gateway
-could not connect to the dead replica and retried each of those GETs on the
-other one:
+Run the loop from step 3 again: still twenty `200`, but slower. Measured in
+two runs: 8 and 12 of the 20 GETs were slow, mostly 3.0 s (2 s connect timeout
+on the dead replica, 1 s back-off, then the live one), a few 1.1 s or 4.1 s,
+once 6.0 s (it met the dead replica twice); the others took 6-15 ms.
+The gateway log shows the retries:
 
 ```bash
 docker logs --since 1m sg-api-gateway 2>&1 | jq -rR 'fromjson? | select(.level == "WARN") | .traceId + "  " + .message'
 ```
 
 `Retrying GET /api/tournaments on route tournament (retry 1 of 2) after
-ConnectTimeoutException`. Keep one of those trace ids for step 6. Within about
-40 s Eureka evicts the replica: the Eureka command from step 1 lists one
-`TOURNAMENT-SERVICE` instance, and the retries stop. Bring it back:
+ConnectTimeoutException`. Keep one of those trace ids for step 6. The retries
+stop 25-30 s after the kill, when Eureka has evicted the replica: the Eureka
+command from step 1 lists one `TOURNAMENT-SERVICE` instance. Bring it back:
 
 ```bash
 docker start scoregrid-tournament-service-2
 ```
 
-`docker compose ps tournament-service` shows it `healthy` about 20 s later,
-and Eureka lists two instances again.
+`healthy` in `docker compose ps tournament-service` and back in Eureka 16 s
+later.
 
 ### 5. A whole service down: 503 and the breaker
+
+`scripts/failover-demo.sh service-down` does this step unattended.
 
 ```bash
 docker compose stop prediction-service
 curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/predictions/me | jq
 ```
 
-`503` in the contract envelope: `"error": "DOWNSTREAM_UNAVAILABLE"`. Repeat the
-`curl` five times: each answer takes a few milliseconds, and after four
-failures the gateway's breaker opens and stops calling. The gateway log names
-the cause, first `Unable to find instance for prediction-service`, then
-`CircuitBreaker 'prediction-service' is OPEN`. Prometheus sees it at its next
-scrape:
+`503` in the contract envelope: `"error": "DOWNSTREAM_UNAVAILABLE"`. The
+first one can take a few seconds while the gateway still tries the old
+address. Repeat the `curl` five times: each answer now takes 2-5 ms, and after
+four failures the gateway's breaker opens and stops calling. The WARN lines from step 4's log
+command name the cause: `Unable to find instance for prediction-service`,
+then `CircuitBreaker 'prediction-service' is OPEN`. Prometheus sees it at its
+next scrape:
 
 ```bash
 curl -s http://localhost:9090/api/v1/query --data-urlencode 'query=resilience4j_circuitbreaker_state{application="api-gateway", name="prediction-service", state="open"}' | jq -r '.data.result[].value[1]'
 ```
 
-`1` means open. Restart:
+`1` means open. Do not load a match result now (see
+[Reset](#reset-when-something-is-left-half-done)). Restart:
 
 ```bash
 docker compose start prediction-service
 ```
 
-The first `200` comes about 20 s later. The breaker then shows as half-open
-until a few calls succeed.
+The first `200` came 23 s later. The breaker then shows as half-open until a
+few calls succeed.
 
 ### 6. Observability
 
@@ -226,31 +249,62 @@ when unset).
 Open a line that has a `traceId` and click **Ver traza en Tempo** to jump to
 its trace.
 
-**Traces** (Grafana → Explore → Tempo → TraceQL):
+**Traces** (Grafana → Explore → Tempo → TraceQL, paste a trace id or a query):
 
-- A retried GET from step 4: paste its trace id. The gateway span has two
-  `http get` children: 2 s lost on the dead replica, then the one that
-  answered.
-- A match result, across RabbitMQ: load a result (step 5 of the
-  [vertical slice](#vertical-slice), or the `PUT` below), then query
-  `{ name = "http put /api/matches/{id}/result" }` and open the newest trace.
+- A retried GET from step 4: paste its trace id. The 3 s gateway span has two
+  `http get` children: the 2 s connect timeout on the dead replica and, after
+  the 1 s back-off, the call the live replica answered.
+- A match result, across RabbitMQ. Pick an active tournament, then one of its
+  matches, then load a result (or do it from the frontend, step 5 of the
+  [vertical slice](#vertical-slice)):
 
   ```bash
+  curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:8080/api/tournaments?status=ACTIVE' | jq -r '.content[] | "\(.id) \(.name)"'
+  curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/tournaments/<tournamentId>/matches | jq -r '.[] | "\(.id) \(.homeTeam.name) - \(.awayTeam.name) \(.status)"'
   curl -s -o /dev/null -w '%{http_code}\n' -X PUT http://localhost:8080/api/matches/<matchId>/result -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"homeScore":2,"awayScore":1}'
+  docker logs --since 1m sg-api-gateway 2>&1 | jq -rR 'fromjson? | select(.message | contains("/result")) | .traceId + "  " + .message'
   ```
 
-  `204`. List a tournament's matches to pick a `<matchId>`:
-  `curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/tournaments/<tournamentId>/matches | jq -r '.[] | "\(.id) \(.homeTeam.name) - \(.awayTeam.name) \(.status)"'`,
-  with the ids from
-  `curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:8080/api/tournaments?status=ACTIVE' | jq -r '.content[] | "\(.id) \(.name)"'`.
-
-  The waterfall: api-gateway → tournament-service (`http put
-  /api/matches/{id}/result`) → `scoregrid.events/match.finished send` →
+  The `PUT` answers `204`; the last command prints its trace id. Paste it in
+  Tempo, or query `{ name = "http put /api/matches/{id}/result" }` and open
+  the newest trace. The waterfall: api-gateway → tournament-service (`http
+  put /api/matches/{id}/result`) → `scoregrid.events/match.finished send` →
   score-service `score.match-finished receive` → its `http get` to
   prediction-service for the predictions → `score.calculated send`. A second
   branch, `match.updated`, reaches prediction-service's match cache. **Node
   graph** draws the same hops as boxes. Click a span, then **Related logs**:
   the log lines of that trace from all four services, next to the trace.
+
+### Reset when something is left half-done
+
+```bash
+docker compose up -d
+```
+
+Starts every stopped or killed container (prediction-service after step 5, a
+replica after step 4) and waits until they are healthy. The fallback is
+`scripts/failover-demo.sh restore`, which also waits until Eureka lists two
+tournament replicas and one prediction-service.
+
+A result loaded while prediction-service is stopped is lost for scoring:
+score-service consumes `match.finished`, cannot read the predictions,
+retries three times and dead-letters the event to
+`score.match-finished.dlq`. Restart prediction-service first. To check, open
+<http://localhost:15672> → **Queues** → `score.match-finished.dlq`
+(`RABBITMQ_USER` / `RABBITMQ_PASSWORD` from `.env`, `scoregrid` / `scoregrid`
+when unset), or:
+
+```bash
+docker exec sg-rabbitmq rabbitmqctl list_queues --quiet name messages
+```
+
+To replay, send the same result again once prediction-service is up
+(rescoring replaces the match score, so nothing is counted twice), then empty
+the dead-letter queue:
+
+```bash
+docker exec sg-rabbitmq rabbitmqctl purge_queue score.match-finished.dlq
+```
 
 ## Failover
 
