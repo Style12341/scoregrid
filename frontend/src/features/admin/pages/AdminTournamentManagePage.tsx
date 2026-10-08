@@ -180,6 +180,7 @@ export function AdminTournamentManagePage() {
           <GroupsTab
             tournament={tournament}
             groups={groups}
+            matches={matches}
             tournamentTeams={teams}
             onChanged={load}
           />

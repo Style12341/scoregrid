@@ -19,9 +19,11 @@ import {
   createGroup,
   getGroupTeams,
 } from "@/features/tournaments/api/tournaments";
-import type { Group, Team, Tournament } from "@/features/tournaments/types/tournament";
+import type { Group, Match, Team, Tournament } from "@/features/tournaments/types/tournament";
 import { apiErrorMessage } from "@/features/tournaments/errors";
-import { SelectableTeamChip, TeamChip } from "./TeamChip";
+import { matchesInGroup } from "@/features/tournaments/format";
+import { GroupStandings } from "@/features/tournaments/components/GroupStandings";
+import { SelectableTeamChip } from "./TeamChip";
 import { isConfigurable, toggleId } from "./status";
 
 function CreateGroupDialog({
@@ -180,11 +182,13 @@ function AssignTeamsDialog({
 export function GroupsTab({
   tournament,
   groups,
+  matches,
   tournamentTeams,
   onChanged,
 }: {
   tournament: Tournament;
   groups: Group[];
+  matches: Match[];
   tournamentTeams: Team[];
   onChanged: () => void;
 }) {
@@ -216,7 +220,9 @@ export function GroupsTab({
     <Card>
       <CardHeader>
         <CardTitle>Grupos</CardTitle>
-        <CardDescription>Cada equipo puede estar en un solo grupo.</CardDescription>
+        <CardDescription>
+          Cada equipo puede estar en un solo grupo. La tabla suma los partidos finalizados.
+        </CardDescription>
         {canEdit && (
           <CardAction>
             <CreateGroupDialog
@@ -238,7 +244,7 @@ export function GroupsTab({
         ) : error ? (
           <ErrorState title="No pudimos cargar los grupos" description={error} onRetry={loadGroupTeams} />
         ) : (
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 xl:grid-cols-2">
             {groups.map((group) => {
               const teams = teamsByGroup[group.id] ?? [];
               return (
@@ -264,10 +270,12 @@ export function GroupsTab({
                   {teams.length === 0 ? (
                     <p className="text-sm text-muted-foreground">Sin equipos asignados.</p>
                   ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {teams.map((team) => (
-                        <TeamChip key={team.id} team={team} />
-                      ))}
+                    <div className="rounded-md border border-border bg-card">
+                      <GroupStandings
+                        groupName={group.name}
+                        teams={teams}
+                        matches={matchesInGroup(matches, group.id)}
+                      />
                     </div>
                   )}
                 </div>

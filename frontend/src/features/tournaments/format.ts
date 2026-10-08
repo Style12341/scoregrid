@@ -55,6 +55,11 @@ export function hasResult(match: Match): match is Match & { homeScore: number; a
   return match.homeScore !== null && match.awayScore !== null;
 }
 
+/** The matches played in one group. */
+export function matchesInGroup(matches: Match[], groupId: string): Match[] {
+  return matches.filter((match) => match.groupId === groupId);
+}
+
 /** Earliest kickoff first. */
 export function byKickoff(a: Match, b: Match): number {
   return new Date(a.startTime).getTime() - new Date(b.startTime).getTime();
