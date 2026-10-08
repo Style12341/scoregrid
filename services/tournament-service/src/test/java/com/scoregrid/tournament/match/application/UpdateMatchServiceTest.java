@@ -204,7 +204,7 @@ class UpdateMatchServiceTest {
     }
 
     @Test
-    void shouldNotPublishEventWhenOnlyTeamsChange() {
+    void shouldPublishEventWhenOnlyTeamsChange() {
         var match = matchWithStatus(MatchStatus.SCHEDULED);
         when(matchRepository.findById(99L)).thenReturn(Optional.of(match));
         when(tournamentRepository.findById(1L)).thenReturn(Optional.of(activeTournament));
@@ -223,8 +223,19 @@ class UpdateMatchServiceTest {
         when(teamRepository.findById(10L)).thenReturn(Optional.of(newAway));
         when(matchRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        // Same status, same startTime, same group — only teams changed
+        // Same status, same startTime, same group — only teams changed.
+        // match.updated carries homeTeamId/awayTeamId, so consumers must hear about it.
         var cmd = new UpdateMatchUseCase.Command(99L, 3L, null, 9L, 10L, FUTURE, MatchStatus.SCHEDULED);
+        useCase.execute(cmd);
+
+        verify(eventPublisher).updated(any(), any());
+    }
+
+    @Test
+    void shouldNotPublishEventWhenNothingChanges() {
+        setupSuccessfulUpdateMocks(matchWithStatus(MatchStatus.SCHEDULED));
+
+        var cmd = new UpdateMatchUseCase.Command(99L, 3L, null, 7L, 8L, FUTURE, MatchStatus.SCHEDULED);
         useCase.execute(cmd);
 
         verify(eventPublisher, never()).updated(any(), any());

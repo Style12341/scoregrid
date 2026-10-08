@@ -407,7 +407,7 @@ Queues are durable. Each has `x-dead-letter-exchange: scoregrid.dlx` and a per-q
   "status": "SCHEDULED"
 }
 ```
-Published on match creation, and on any change to `startTime` or `status`. This is what keeps Prediction Service's match cache warm so the lock check costs nothing.
+Published on match creation, and on any change to a field it carries (`startTime`, `status`, teams, group or phase). This is what keeps Prediction Service's match cache warm so the lock check costs nothing.
 
 **`match.finished`** — published by tournament-service
 ```json

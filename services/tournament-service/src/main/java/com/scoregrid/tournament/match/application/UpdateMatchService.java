@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Objects;
 
 @Service
 @Transactional
@@ -73,6 +74,10 @@ public class UpdateMatchService implements UpdateMatchUseCase {
 
         MatchStatus previousStatus = match.getStatus();
         Instant previousStartTime = match.getStartTime();
+        Long previousHomeTeamId = match.getHomeTeam().id();
+        Long previousAwayTeamId = match.getAwayTeam().id();
+        Long previousGroupId = match.getGroupId();
+        Long previousPhaseId = match.getPhaseId();
 
         validateCommand(command);
         if (previousStatus.isTerminal()) {
@@ -156,9 +161,13 @@ public class UpdateMatchService implements UpdateMatchUseCase {
         log.info("Match updated: matchId={} status={} startTime={}",
                 saved.getId(), saved.getStatus(), saved.getStartTime());
 
-        // Publish event only if startTime or status changed
+        // Publish when any field carried by match.updated changed, so consumers never keep stale teams.
         boolean changed = !saved.getStatus().equals(previousStatus)
-                || !saved.getStartTime().equals(previousStartTime);
+                || !saved.getStartTime().equals(previousStartTime)
+                || !Objects.equals(saved.getHomeTeam().id(), previousHomeTeamId)
+                || !Objects.equals(saved.getAwayTeam().id(), previousAwayTeamId)
+                || !Objects.equals(saved.getGroupId(), previousGroupId)
+                || !Objects.equals(saved.getPhaseId(), previousPhaseId);
         if (changed) {
             eventPublisher.updated(saved, tournament.getStatus());
         }
