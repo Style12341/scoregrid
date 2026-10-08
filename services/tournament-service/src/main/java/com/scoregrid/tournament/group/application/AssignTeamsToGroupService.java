@@ -10,6 +10,8 @@ import com.scoregrid.tournament.team.domain.port.out.TeamRepository;
 import com.scoregrid.tournament.team.domain.port.out.TournamentTeamRepository;
 import com.scoregrid.tournament.tournament.domain.model.TournamentStatus;
 import com.scoregrid.tournament.tournament.domain.port.out.TournamentRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -18,6 +20,8 @@ import java.util.List;
 @Service
 @Transactional
 public class AssignTeamsToGroupService implements AssignTeamsToGroupUseCase {
+
+    private static final Logger log = LoggerFactory.getLogger(AssignTeamsToGroupService.class);
 
     private final GroupRepository groupRepository;
     private final GroupTeamRepository groupTeamRepository;
@@ -77,6 +81,7 @@ public class AssignTeamsToGroupService implements AssignTeamsToGroupUseCase {
             groupTeamRepository.assign(command.groupId(), teamId);
         }
 
+        log.info("Teams assigned to group: groupId={} teamIds={}", command.groupId(), command.teamIds());
         // Return all teams currently assigned to the group
         return groupTeamRepository.findTeamsByGroupId(command.groupId());
     }

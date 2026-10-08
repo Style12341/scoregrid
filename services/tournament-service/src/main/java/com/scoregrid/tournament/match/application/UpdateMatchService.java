@@ -15,6 +15,8 @@ import com.scoregrid.tournament.team.domain.port.out.TeamRepository;
 import com.scoregrid.tournament.team.domain.port.out.TournamentTeamRepository;
 import com.scoregrid.tournament.tournament.domain.model.TournamentStatus;
 import com.scoregrid.tournament.tournament.domain.port.out.TournamentRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -23,6 +25,8 @@ import java.time.Instant;
 @Service
 @Transactional
 public class UpdateMatchService implements UpdateMatchUseCase {
+
+    private static final Logger log = LoggerFactory.getLogger(UpdateMatchService.class);
 
     private final MatchRepository matchRepository;
     private final TournamentRepository tournamentRepository;
@@ -149,6 +153,8 @@ public class UpdateMatchService implements UpdateMatchUseCase {
         }
 
         var saved = matchRepository.save(match);
+        log.info("Match updated: id={} from={} to={} startTime={}",
+                saved.getId(), previousStatus, saved.getStatus(), saved.getStartTime());
 
         // Publish event only if startTime or status changed
         boolean changed = !saved.getStatus().equals(previousStatus)

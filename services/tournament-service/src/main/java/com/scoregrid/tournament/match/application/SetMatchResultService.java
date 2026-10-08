@@ -7,12 +7,16 @@ import com.scoregrid.tournament.shared.error.DomainException;
 import com.scoregrid.tournament.shared.error.ErrorKind;
 import com.scoregrid.tournament.tournament.domain.model.TournamentStatus;
 import com.scoregrid.tournament.tournament.domain.port.out.TournamentRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @Transactional
 public class SetMatchResultService implements SetMatchResultUseCase {
+
+    private static final Logger log = LoggerFactory.getLogger(SetMatchResultService.class);
 
     private final MatchRepository matchRepository;
     private final MatchEventPublisher eventPublisher;
@@ -64,6 +68,8 @@ public class SetMatchResultService implements SetMatchResultUseCase {
         }
 
         matchRepository.save(match);
+        log.info("Match result set: id={} homeScore={} awayScore={}",
+                match.getId(), match.getHomeScore(), match.getAwayScore());
         eventPublisher.finished(match);
         eventPublisher.updated(match, tournament.getStatus());
     }

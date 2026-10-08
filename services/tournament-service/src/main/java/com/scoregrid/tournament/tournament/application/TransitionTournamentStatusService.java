@@ -7,12 +7,16 @@ import com.scoregrid.tournament.tournament.domain.port.in.TransitionTournamentSt
 import com.scoregrid.tournament.tournament.domain.port.out.TournamentRepository;
 import com.scoregrid.tournament.shared.error.DomainException;
 import com.scoregrid.tournament.shared.error.ErrorKind;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @Transactional
 public class TransitionTournamentStatusService implements TransitionTournamentStatusUseCase {
+
+    private static final Logger log = LoggerFactory.getLogger(TransitionTournamentStatusService.class);
 
     private final TournamentRepository tournamentRepository;
     private final MatchRepository matchRepository;
@@ -31,6 +35,7 @@ public class TransitionTournamentStatusService implements TransitionTournamentSt
         var tournament = tournamentRepository.findById(command.tournamentId())
                 .orElseThrow(() -> new DomainException(ErrorKind.NOT_FOUND, "NOT_FOUND",
                         "Tournament not found: " + command.tournamentId()));
+        var previousStatus = tournament.getStatus();
         try {
             tournament.transitionTo(command.status());
         } catch (IllegalArgumentException e) {
@@ -39,6 +44,8 @@ public class TransitionTournamentStatusService implements TransitionTournamentSt
             throw new DomainException(ErrorKind.CONFLICT, "TOURNAMENT_NOT_ACTIVE", e.getMessage());
         }
         var saved = tournamentRepository.save(tournament);
+        log.info("Tournament status changed: id={} from={} to={}",
+                saved.getId(), previousStatus, saved.getStatus());
         matchRepository.findByTournamentId(saved.getId())
                 .forEach(match -> matchEventPublisher.updated(match, saved.getStatus()));
         return saved;

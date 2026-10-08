@@ -14,6 +14,8 @@ import com.scoregrid.tournament.team.domain.port.out.TeamRepository;
 import com.scoregrid.tournament.team.domain.port.out.TournamentTeamRepository;
 import com.scoregrid.tournament.tournament.domain.model.TournamentStatus;
 import com.scoregrid.tournament.tournament.domain.port.out.TournamentRepository;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -22,6 +24,8 @@ import java.time.Instant;
 @Service
 @Transactional
 public class CreateMatchService implements CreateMatchUseCase {
+
+    private static final Logger log = LoggerFactory.getLogger(CreateMatchService.class);
 
     private final TournamentRepository tournamentRepository;
     private final TournamentTeamRepository tournamentTeamRepository;
@@ -99,6 +103,8 @@ public class CreateMatchService implements CreateMatchUseCase {
         }
 
         var saved = matchRepository.save(match);
+        log.info("Match created: id={} tournamentId={} startTime={}",
+                saved.getId(), saved.getTournamentId(), saved.getStartTime());
         eventPublisher.scheduled(saved, tournament.getStatus());
         return saved;
     }

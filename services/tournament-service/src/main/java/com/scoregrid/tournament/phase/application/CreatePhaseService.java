@@ -7,12 +7,16 @@ import com.scoregrid.tournament.shared.error.DomainException;
 import com.scoregrid.tournament.shared.error.ErrorKind;
 import com.scoregrid.tournament.tournament.domain.port.out.TournamentRepository;
 import com.scoregrid.tournament.tournament.domain.model.TournamentStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @Transactional
 public class CreatePhaseService implements CreatePhaseUseCase {
+
+    private static final Logger log = LoggerFactory.getLogger(CreatePhaseService.class);
 
     private final TournamentRepository tournamentRepository;
     private final PhaseRepository phaseRepository;
@@ -35,6 +39,9 @@ public class CreatePhaseService implements CreatePhaseUseCase {
         }
         var phase = Phase.create(command.tournamentId(), command.type(),
                 command.name(), command.displayOrder());
-        return phaseRepository.save(phase);
+        var saved = phaseRepository.save(phase);
+        log.info("Phase created: id={} tournamentId={} type={}",
+                saved.getId(), saved.getTournamentId(), saved.getType());
+        return saved;
     }
 }
