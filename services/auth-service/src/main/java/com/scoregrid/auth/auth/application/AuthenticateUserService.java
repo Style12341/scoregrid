@@ -34,30 +34,30 @@ class AuthenticateUserService implements AuthenticateUserUseCase {
     public Authentication authenticate(LoginCommand command) {
         Optional<User> found = users.findByUsernameOrEmail(command.usernameOrEmail());
 
+        // The typed username or email is never logged: it is free text, and
+        // people sometimes type their password into it.
         if (found.isEmpty()) {
             // Hash anyway. Returning early here would make an unknown username
             // measurably faster than a wrong password, which hands an attacker
             // the account enumeration the identical error message denies them.
             passwordHasher.burnComparableTime();
-            throw loginFailed(command);
+            log.warn("Login failed: reason=unknown-user");
+            throw invalidCredentials();
         }
 
         User user = found.get();
         if (!passwordHasher.matches(command.rawPassword(), user.passwordHash())) {
-            throw loginFailed(command);
+            log.warn("Login failed: userId={} reason=bad-password", user.id());
+            throw invalidCredentials();
         }
 
+        Authentication authentication = new Authentication(tokenIssuer.issue(user), user);
         log.info("Login succeeded: userId={}", user.id());
-        return new Authentication(tokenIssuer.issue(user), user);
+        return authentication;
     }
 
-    /**
-     * Logs the failed login and returns the error to throw. One message for
-     * both failures, deliberately — docs/contracts.md#auth-service. The log
-     * line does not tell them apart either, and never holds the password.
-     */
-    private static DomainException loginFailed(LoginCommand command) {
-        log.warn("Login failed: usernameOrEmail={}", command.usernameOrEmail());
+    /** One message for both failures, deliberately — docs/contracts.md#auth-service. */
+    private static DomainException invalidCredentials() {
         return new DomainException(ErrorKind.UNAUTHORIZED, "UNAUTHORIZED",
                 "Invalid credentials.");
     }

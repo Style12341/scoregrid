@@ -38,7 +38,7 @@ class RegisterUserService implements RegisterUserUseCase {
                 passwordHasher.hash(command.rawPassword()));
 
         User registered = users.save(account);
-        log.info("User registered: id={} username={}", registered.id(), registered.username());
+        log.info("User registered: userId={} username={}", registered.id(), registered.username());
         return registered;
     }
 
