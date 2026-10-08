@@ -46,12 +46,15 @@ public class RequestLogFilter extends OncePerRequestFilter {
     protected void doFilterInternal(HttpServletRequest request, HttpServletResponse response, FilterChain chain)
             throws ServletException, IOException {
         long start = System.nanoTime();
+        // An exception escaping the chain becomes a 500 later, but the
+        // response still says 200 at this point: log what the client gets.
+        int status = HttpServletResponse.SC_INTERNAL_SERVER_ERROR;
         try {
             chain.doFilter(request, response);
+            status = response.getStatus();
         } finally {
             log.info("Request handled: method={} path={} status={} durationMs={}", request.getMethod(),
-                    request.getRequestURI(), response.getStatus(),
-                    TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
+                    request.getRequestURI(), status, TimeUnit.NANOSECONDS.toMillis(System.nanoTime() - start));
         }
     }
 }
