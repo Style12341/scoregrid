@@ -3,8 +3,14 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { deleteTournament, updateTournamentStatus } from "@/features/tournaments/api/tournaments";
-import type { Tournament, TournamentStatus } from "@/features/tournaments/types/tournament";
+import type { Match, Tournament, TournamentStatus } from "@/features/tournaments/types/tournament";
 import { apiErrorMessage } from "@/features/tournaments/errors";
+import { toApiError } from "@/lib/api";
+
+/** A tournament cannot finish while any match can still be played (docs/contracts.md). */
+function isPending(match: Match): boolean {
+  return match.status === "SCHEDULED" || match.status === "IN_PROGRESS" || match.status === "POSTPONED";
+}
 
 /**
  * The status transitions a tournament allows, each behind a confirmation that
@@ -14,13 +20,16 @@ import { apiErrorMessage } from "@/features/tournaments/errors";
  */
 export function TournamentLifecycleActions({
   tournament,
+  matches,
   onChanged,
 }: {
   tournament: Tournament;
+  matches: Match[];
   onChanged: () => void;
 }) {
   const navigate = useNavigate();
   const { status, name } = tournament;
+  const pending = matches.filter(isPending).length;
 
   async function transition(next: TournamentStatus, done: string, failed: string) {
     try {
@@ -28,9 +37,13 @@ export function TournamentLifecycleActions({
       toast.success(done, { description: name });
       onChanged();
     } catch (error) {
-      toast.error(failed, {
-        description: apiErrorMessage(error, "Volvé a intentarlo en unos segundos."),
-      });
+      // Finishing with pending matches is refused as INVALID_MATCH_STATE; the
+      // generic copy for that code talks about a single match, so say it here.
+      const description =
+        next === "FINISHED" && toApiError(error)?.error === "INVALID_MATCH_STATE"
+          ? "Todavía hay partidos sin terminar. Cargá sus resultados o cancelalos y volvé a intentarlo."
+          : apiErrorMessage(error, "Volvé a intentarlo en unos segundos.");
+      toast.error(failed, { description });
       throw error;
     }
   }
@@ -72,6 +85,14 @@ export function TournamentLifecycleActions({
           title={`¿Finalizar ${name}?`}
           description={
             <>
+              {pending > 0 && (
+                <p className="rounded-md bg-destructive/10 px-3.5 py-3 font-bold text-destructive">
+                  {pending === 1
+                    ? "Queda 1 partido sin terminar (programado, en juego o pospuesto)."
+                    : `Quedan ${pending} partidos sin terminar (programados, en juego o pospuestos).`}{" "}
+                  Cargá sus resultados o cancelalos antes de finalizar.
+                </p>
+              )}
               <p>
                 Se cierran los pronósticos de todos los partidos y el torneo pasa a Finalizado.
               </p>

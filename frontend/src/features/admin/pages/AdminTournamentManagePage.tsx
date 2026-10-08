@@ -152,7 +152,7 @@ export function AdminTournamentManagePage() {
                 </Button>
               }
             />
-            <TournamentLifecycleActions tournament={tournament} onChanged={load} />
+            <TournamentLifecycleActions tournament={tournament} matches={matches} onChanged={load} />
           </div>
         </div>
       </Card>
