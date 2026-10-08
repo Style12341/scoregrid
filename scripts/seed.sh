@@ -7,8 +7,10 @@
 # only:
 #   * 3 PLAYER accounts: sofia, lucas, carla — one shared password from .env
 #   * 10 Argentine teams
-#   * "Liga Master": 10 teams in one group, 45 single round-robin matches
-#   * "Copa UTN": 8 teams, 4 knockout phases, 8 matches
+#   * "Liga Master": 10 teams in one group, 45 single round-robin matches in
+#     9 rounds, one round a day, so every team plays once per day
+#   * "Copa UTN": 8 teams, 4 knockout phases, only the 4 quarter-final matches;
+#     later rounds are built from results in the admin ("Armar siguiente fase")
 #   * enrolment of the 3 players in both ACTIVE tournaments
 #
 # Required .env keys: SCOREGRID_ADMIN_USERNAME (default "admin"),
@@ -17,8 +19,9 @@
 #
 # Idempotent: teams, tournaments and users are matched by name and reused, so a
 # second run creates nothing and exits 0. An existing tournament is kept only
-# when its structure looks complete (expected group / phase / match counts) and
-# it is ACTIVE; otherwise the script warns and skips it. It never deletes data.
+# when its structure looks complete (expected group and phase counts, at least
+# the expected matches, since the admin adds knockout rounds later) and it is
+# ACTIVE; otherwise the script warns and skips it. It never deletes data.
 #
 # JSON is parsed and built with jq when available, otherwise with python3; the
 # backend in use is reported. The script refuses to run against anything but
@@ -406,7 +409,8 @@ find_tournament_id() {
     return 0
 }
 
-# is_complete ID GROUPS PHASES MATCHES -> true when ACTIVE with those counts.
+# is_complete ID GROUPS PHASES MATCHES -> true when ACTIVE with those group and
+# phase counts and at least MATCHES matches.
 is_complete() {
     local id=$1 eg=$2 ep=$3 em=$4 status groups phases matches
     api GET "/api/tournaments/$id" "$ADMIN_AUTH" >/dev/null
@@ -418,7 +422,7 @@ is_complete() {
     api GET "/api/tournaments/$id/matches" "$ADMIN_AUTH" >/dev/null
     matches=$(json_count <"$BODY_FILE")
     info "checking '$id': status=$status groups=$groups phases=$phases matches=$matches" >&2
-    [ "$status" = ACTIVE ] && [ "$groups" = "$eg" ] && [ "$phases" = "$ep" ] && [ "$matches" = "$em" ]
+    [ "$status" = ACTIVE ] && [ "$groups" = "$eg" ] && [ "$phases" = "$ep" ] && [ "${matches:-0}" -ge "$em" ]
 }
 
 create_tournament() { # NAME DESCRIPTION START END
@@ -472,7 +476,7 @@ create_match() { # TOURNAMENT_ID GROUP_ID PHASE_ID HOME AWAY START CONTEXT
 }
 
 build_liga() { # TOURNAMENT_ID
-    local id=$1 status group k=0 i j day start
+    local id=$1 status group k=0 round slot day start home away
     local -a ids=("${TEAM_IDS[@]}")
     status=$(api POST "/api/tournaments/$id/teams" "$ADMIN_AUTH" "$(body_teams "${ids[@]}")")
     expect_status 200 "$status" "assigning the 10 teams to '$LIGA_NAME'"
@@ -482,43 +486,54 @@ build_liga() { # TOURNAMENT_ID
     status=$(api POST "/api/groups/$group/teams" "$ADMIN_AUTH" "$(body_teams "${ids[@]}")")
     expect_status 200 "$status" "assigning the 10 teams to group 'Tabla general'"
 
-    # Full single round-robin: every pair i<j, 45 matches. Match k (0-indexed):
-    # round = k/5, slot = k%5 -> day base+round, hour 14+2*slot (UTC). The base is
-    # two weeks out, so every kickoff is strictly in the future.
-    info "Liga: creating 45 round-robin matches ..."
-    for ((i = 0; i < ${#ids[@]}; i++)); do
-        for ((j = i + 1; j < ${#ids[@]}; j++)); do
-            day=$(date -u -d "$LIGA_BASE_DATE +$((k / 5)) days" +%Y-%m-%d)
-            start="${day}T$(printf '%02d' $((14 + 2 * (k % 5)))):00:00Z"
-            create_match "$id" "$group" "" "${ids[$i]}" "${ids[$j]}" "$start" \
+    # Full single round-robin by the circle method, like the admin's "Generar
+    # fixture": the first seat stays, the others rotate one seat per round, so
+    # each of the 9 rounds has every team playing exactly once. Round r is played
+    # on day base+r, its 5 matches two hours apart from 14:00 UTC. The base is two
+    # weeks out, so every kickoff is strictly in the future. (Pairing i<j in
+    # order instead had one team play 5 times on day one.)
+    local first_kickoff_hour=14 hours_between_kickoffs=2
+    local -a seats=("${ids[@]}")
+    local n=${#seats[@]}
+    info "Liga: creating 45 round-robin matches in 9 rounds ..."
+    for ((round = 0; round < n - 1; round++)); do
+        day=$(date -u -d "$LIGA_BASE_DATE +$round days" +%Y-%m-%d)
+        for ((slot = 0; slot < n / 2; slot++)); do
+            home=${seats[$slot]}
+            away=${seats[$((n - 1 - slot))]}
+            # The fixed seat alternates home and away, so its team does not host every round.
+            if [ "$slot" -eq 0 ] && [ $((round % 2)) -eq 1 ]; then
+                home=${seats[$((n - 1))]}
+                away=${seats[0]}
+            fi
+            start="${day}T$(printf '%02d' $((first_kickoff_hour + hours_between_kickoffs * slot))):00:00Z"
+            create_match "$id" "$group" "" "$home" "$away" "$start" \
                 "creating Liga match $((k + 1))/45"
             k=$((k + 1))
         done
+        # Every seat but the first moves one place: the last one becomes the second.
+        seats=("${seats[0]}" "${seats[$((n - 1))]}" "${seats[@]:1:$((n - 2))}")
     done
 }
 
 build_copa() { # TOURNAMENT_ID
-    local id=$1 status qf sf third final
+    local id=$1 status qf
     local -a ids=("${TEAM_IDS[@]:0:8}")
     status=$(api POST "/api/tournaments/$id/teams" "$ADMIN_AUTH" "$(body_teams "${ids[@]}")")
     expect_status 200 "$status" "assigning the 8 teams to '$COPA_NAME'"
 
     qf=$(create_phase "$id" QUARTER_FINAL "Cuartos de final" 1)
-    sf=$(create_phase "$id" SEMI_FINAL "Semifinales" 2)
-    third=$(create_phase "$id" THIRD_PLACE "Tercer puesto" 3)
-    final=$(create_phase "$id" FINAL "Final" 4)
+    create_phase "$id" SEMI_FINAL "Semifinales" 2 >/dev/null
+    create_phase "$id" THIRD_PLACE "Tercer puesto" 3 >/dev/null
+    create_phase "$id" FINAL "Final" 4 >/dev/null
 
-    info "Copa: creating 8 knockout matches ..."
+    # Only the quarter-finals: who plays the later rounds depends on results.
+    # Load them in the admin, then "Armar siguiente fase" proposes each round.
+    info "Copa: creating the 4 quarter-final matches ..."
     create_match "$id" "" "$qf" "${ids[0]}" "${ids[7]}" "${DAY30}T18:00:00Z" "creating Copa QF1"
     create_match "$id" "" "$qf" "${ids[3]}" "${ids[4]}" "${DAY30}T20:00:00Z" "creating Copa QF2"
     create_match "$id" "" "$qf" "${ids[2]}" "${ids[5]}" "${DAY31}T18:00:00Z" "creating Copa QF3"
     create_match "$id" "" "$qf" "${ids[1]}" "${ids[6]}" "${DAY31}T20:00:00Z" "creating Copa QF4"
-    # SF, third-place and final pairings are illustrative placeholders until real
-    # results exist; the API has no bracket derivation.
-    create_match "$id" "" "$sf" "${ids[0]}" "${ids[3]}" "${DAY37}T18:00:00Z" "creating Copa SF1"
-    create_match "$id" "" "$sf" "${ids[1]}" "${ids[2]}" "${DAY37}T20:00:00Z" "creating Copa SF2"
-    create_match "$id" "" "$third" "${ids[2]}" "${ids[3]}" "${DAY44}T18:00:00Z" "creating Copa third-place match"
-    create_match "$id" "" "$final" "${ids[0]}" "${ids[1]}" "${DAY45}T20:00:00Z" "creating Copa final"
 }
 
 seed_tournaments() {
@@ -533,8 +548,8 @@ seed_tournaments() {
         warn "'$LIGA_NAME' (id $TOURNAMENT_ID) already exists but its structure is incomplete; nothing was created. Delete it as admin (DELETE /api/tournaments/$TOURNAMENT_ID) and re-run to rebuild."
     fi
 
-    # Tournament B — direct elimination, first 8 teams, 4 phases, 8 matches.
-    if ensure_tournament "$COPA_NAME" "$COPA_DESC" "$COPA_START" "$COPA_END" 0 4 8; then
+    # Tournament B — direct elimination, first 8 teams, 4 phases, 4 quarter-finals.
+    if ensure_tournament "$COPA_NAME" "$COPA_DESC" "$COPA_START" "$COPA_END" 0 4 4; then
         if [ "$TOURNAMENT_CREATED" = 1 ]; then
             build_copa "$TOURNAMENT_ID"
             activate_tournament "$TOURNAMENT_ID" "$COPA_NAME"
@@ -643,9 +658,6 @@ main() {
     COPA_END=$(date -u -d "+60 days" +%Y-%m-%d)
     DAY30=$(date -u -d "+30 days" +%Y-%m-%d)
     DAY31=$(date -u -d "+31 days" +%Y-%m-%d)
-    DAY37=$(date -u -d "+37 days" +%Y-%m-%d)
-    DAY44=$(date -u -d "+44 days" +%Y-%m-%d)
-    DAY45=$(date -u -d "+45 days" +%Y-%m-%d)
 
     seed_teams
     seed_tournaments
