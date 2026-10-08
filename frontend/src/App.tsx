@@ -3,6 +3,7 @@ import { AuthProvider } from "./auth/AuthContext";
 import { RequireAuth } from "./auth/RequireAuth";
 import { AppLayout } from "./components/layout/AppLayout";
 import { EmptyState } from "./components/common/states";
+import { Toaster } from "./components/ui/sonner";
 import { LoginPage } from "./features/auth/LoginPage";
 import { RegisterPage } from "./features/auth/RegisterPage";
 import { DashboardPage } from "./features/dashboard/DashboardPage";
@@ -79,6 +80,8 @@ export default function App() {
             }
           />
         </Routes>
+        {/* One toast region for the whole app: toast.success / toast.error. */}
+        <Toaster />
       </AuthProvider>
     </BrowserRouter>
   );
