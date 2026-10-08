@@ -7,6 +7,7 @@ import io.github.resilience4j.retry.Retry;
 import io.github.resilience4j.retry.RetryConfig;
 import io.github.resilience4j.timelimiter.TimeLimiterConfig;
 import io.github.resilience4j.timelimiter.TimeLimiterRegistry;
+import io.micrometer.observation.ObservationRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.cloud.circuitbreaker.resilience4j.Resilience4JCircuitBreakerFactory;
@@ -62,6 +63,20 @@ public class ResilienceConfig {
      * 3 x 0.5 s + 0.2 s + 0.4 s = 2.1 s.
      */
     private static final Duration TIME_LIMIT = Duration.ofMillis(2200);
+
+    /**
+     * Hands the factory the ObservationRegistry while it is being built. The
+     * time limiter runs each call on another thread, and only an observed
+     * breaker carries the trace over to it; without that the outbound request
+     * starts a new trace. Spring Cloud sets the registry itself, but in a
+     * {@code @PostConstruct} that can run after TournamentRestClient's
+     * constructor has already created its breaker, unobserved.
+     */
+    @Bean
+    Customizer<Resilience4JCircuitBreakerFactory> observedCircuitBreakerCustomizer(
+            ObservationRegistry observationRegistry) {
+        return factory -> factory.setObservationRegistry(observationRegistry);
+    }
 
     @Bean
     Customizer<Resilience4JCircuitBreakerFactory> defaultCircuitBreakerCustomizer() {

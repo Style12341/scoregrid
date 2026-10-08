@@ -6,10 +6,14 @@ import com.scoregrid.auth.auth.domain.port.out.PasswordHasher;
 import com.scoregrid.auth.auth.domain.port.out.UserRepositoryPort;
 import com.scoregrid.auth.shared.error.DomainException;
 import com.scoregrid.auth.shared.error.ErrorKind;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 @Service
 class RegisterUserService implements RegisterUserUseCase {
+
+    private static final Logger log = LoggerFactory.getLogger(RegisterUserService.class);
 
     private final UserRepositoryPort users;
     private final PasswordHasher passwordHasher;
@@ -33,7 +37,9 @@ class RegisterUserService implements RegisterUserUseCase {
                 command.email(),
                 passwordHasher.hash(command.rawPassword()));
 
-        return users.save(account);
+        User registered = users.save(account);
+        log.info("User registered: userId={} username={}", registered.id(), registered.username());
+        return registered;
     }
 
     static DomainException duplicate() {

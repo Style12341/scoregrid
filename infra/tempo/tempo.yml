@@ -1,0 +1,31 @@
+# Single-binary Tempo for the local stack. The services report spans with
+# Brave's Zipkin reporter (spring-boot-zipkin), so the Zipkin receiver is the
+# only one enabled. Grafana queries Tempo on 3200.
+server:
+  http_listen_port: 3200
+  log_level: warn
+
+distributor:
+  receivers:
+    zipkin:
+      # Receivers bind to localhost by default since Tempo 2.7: without the
+      # explicit 0.0.0.0 the services' spans never arrive, and nothing logs it.
+      endpoint: 0.0.0.0:9411
+
+ingester:
+  # Flush traces to a block quickly so a trace is searchable within seconds of
+  # the request, not minutes.
+  max_block_duration: 1m
+
+compactor:
+  compaction:
+    # Two days: enough to rehearse one day and present the next.
+    block_retention: 48h
+
+storage:
+  trace:
+    backend: local
+    wal:
+      path: /var/tempo/wal
+    local:
+      path: /var/tempo/blocks

@@ -24,8 +24,13 @@ spring:
     port: ${SPRING_RABBITMQ_PORT:5672}
     username: ${SPRING_RABBITMQ_USERNAME:scoregrid}
     password: ${SPRING_RABBITMQ_PASSWORD:scoregrid}
+    # Trace context crosses RabbitMQ in the message headers: the template
+    # writes it, the listener continues it. Both are off by default.
+    template:
+      observation-enabled: true
     listener:
       simple:
+        observation-enabled: true
         acknowledge-mode: auto
         # On exhaustion the message dead-letters instead of being requeued
         # forever. Scoring resumes later; nothing is lost.
@@ -104,9 +109,24 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        # Latency buckets, so the Grafana dashboard can show p95 per instance.
+        http.server.requests: true
   tracing:
     sampling:
       probability: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:1.0}
+    export:
+      zipkin:
+        # Off here, so ./mvnw runs and tests never post spans to a missing
+        # localhost:9411. compose.yaml turns it on and points it at Tempo.
+        enabled: false
+  observations:
+    enable:
+      # Spring Security adds five spans to every request (filter chain,
+      # authentication, authorization), which bury the service-to-service
+      # hops in each trace.
+      spring.security: false
 
 logging:
   level:

@@ -147,7 +147,7 @@ Integration tests use Testcontainers and start real PostgreSQL, MongoDB and Rabb
 scoregrid/
 ├── .github/workflows/     CI: Eureka + five services, frontend, compose validation
 ├── docs/                  PRD, setup guide, frozen contracts, work split
-├── infra/                 database provisioning + Prometheus, Grafana, Loki, Promtail
+├── infra/                 database provisioning + Prometheus, Grafana, Loki, Promtail, Tempo
 ├── services/              six independently buildable Maven projects
 │   ├── eureka-server/
 │   ├── api-gateway/

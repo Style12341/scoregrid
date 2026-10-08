@@ -8,7 +8,8 @@ name: scoregrid
 #                                                   the IDE or ./mvnw
 #   docker compose up -d --build                    whole system (11 containers:
 #                                                   tournament-service runs 2)
-#   docker compose --profile observability up -d    + Prometheus, Grafana, Loki
+#   docker compose --profile observability up -d    + Prometheus, Grafana, Loki,
+#                                                   Tempo
 #
 # Storage is one Postgres and one MongoDB, each holding one database per
 # service with its own least-privilege login. PRD requirement 6 asks for at
@@ -32,6 +33,11 @@ x-service-defaults: &service-defaults
     SCOREGRID_JWT_ISSUER: ${SCOREGRID_JWT_ISSUER:-scoregrid-auth}
     EUREKA_CLIENT_SERVICEURL_DEFAULTZONE: http://eureka-server:8761/eureka/
     MANAGEMENT_TRACING_SAMPLING_PROBABILITY: "1.0"
+    # Spans go to Tempo (observability profile). Without that profile the
+    # reporter cannot resolve "tempo" and drops the spans without logging
+    # anything (checked with Tempo stopped).
+    MANAGEMENT_TRACING_EXPORT_ZIPKIN_ENABLED: "true"
+    MANAGEMENT_TRACING_EXPORT_ZIPKIN_ENDPOINT: http://tempo:9411/api/v2/spans
 
 x-healthcheck-defaults: &healthcheck-defaults
   interval: 10s
@@ -293,7 +299,8 @@ services:
     restart: unless-stopped
     networks: [scoregrid]
     command: -config.file=/etc/loki/loki-config.yml
-    ports: ["3100:3100"]
+    # Loopback only, like Prometheus: no authentication in front of it.
+    ports: ["127.0.0.1:3100:3100"]
     volumes:
       - ./infra/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
       - lokidata:/loki
@@ -311,13 +318,28 @@ services:
       - /var/run/docker.sock:/var/run/docker.sock:ro
     depends_on: [loki]
 
+  # Traces. The services report over Zipkin (Brave's reporter) to 9411; Grafana
+  # queries 3200, published on loopback for curl like Prometheus.
+  tempo:
+    image: grafana/tempo:2.10.8
+    container_name: sg-tempo
+    profiles: [observability]
+    restart: unless-stopped
+    networks: [scoregrid]
+    command: -config.file=/etc/tempo/tempo.yml
+    ports: ["127.0.0.1:3200:3200"]
+    volumes:
+      - ./infra/tempo/tempo.yml:/etc/tempo/tempo.yml:ro
+      - tempodata:/var/tempo
+
   grafana:
     image: grafana/grafana:13.2.3
     container_name: sg-grafana
     profiles: [observability]
     restart: unless-stopped
     networks: [scoregrid]
-    ports: ["3001:3000"]
+    # Loopback only: the admin password is a dev default unless .env sets one.
+    ports: ["127.0.0.1:3001:3000"]
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
@@ -325,7 +347,7 @@ services:
     volumes:
       - ./infra/grafana/provisioning:/etc/grafana/provisioning:ro
       - grafanadata:/var/lib/grafana
-    depends_on: [prometheus, loki]
+    depends_on: [prometheus, loki, tempo]
 
 networks:
   scoregrid:
@@ -337,4 +359,5 @@ volumes:
   rabbitdata:
   prometheusdata:
   lokidata:
+  tempodata:
   grafanadata:

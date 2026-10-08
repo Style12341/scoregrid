@@ -7,12 +7,16 @@ import com.scoregrid.tournament.shared.error.DomainException;
 import com.scoregrid.tournament.shared.error.ErrorKind;
 import com.scoregrid.tournament.tournament.domain.port.out.TournamentRepository;
 import com.scoregrid.tournament.tournament.domain.model.TournamentStatus;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @Transactional
 public class CreateGroupService implements CreateGroupUseCase {
+
+    private static final Logger log = LoggerFactory.getLogger(CreateGroupService.class);
 
     private final TournamentRepository tournamentRepository;
     private final GroupRepository groupRepository;
@@ -34,6 +38,9 @@ public class CreateGroupService implements CreateGroupUseCase {
                     "Tournament is not configurable in state " + tournament.getStatus());
         }
         var group = Group.create(command.tournamentId(), command.name(), command.displayOrder());
-        return groupRepository.save(group);
+        var saved = groupRepository.save(group);
+        log.info("Group created: groupId={} tournamentId={} name={}",
+                saved.getId(), saved.getTournamentId(), saved.getName());
+        return saved;
     }
 }

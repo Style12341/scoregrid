@@ -34,6 +34,7 @@ The application is implemented end to end and the full Compose stack is verified
 - `compose.yaml` — one Postgres and one MongoDB, each with one database and one login per service, provisioned from `infra/postgres/init` and `infra/mongo/init`; RabbitMQ; Eureka; five services; frontend. `infra/` also holds the observability config.
 - Git repository and `.github/workflows/ci.yml` — Eureka plus five services in a matrix, frontend lint + build, compose validation on both profiles.
 - Frontend: axios client, auth context, route guard, route map, and the **design system** (Tailwind v4 + shadcn/ui restyled to the mock) — see §8.
+- Observability (`--profile observability`): Prometheus scrapes every replica found in Eureka; Promtail ships the JSON logs to Loki with the labels `service`, `container`, `replica` and `level` (`traceId` is structured metadata, not a label); the gateway and the four business services report spans to Tempo over Zipkin (eureka-server does not), across the gateway, the service-to-service calls and RabbitMQ; Grafana links logs and traces both ways. The hand-driven walkthrough is [`docs/demo.md`](docs/demo.md#hand-demo).
 - Resilience and failover: every gateway route has a breaker with a `503 DOWNSTREAM_UNAVAILABLE` fallback, GET-only retry onto another replica when the connection cannot be opened, and proxy timeouts; tournament-service runs two replicas by default and shuts down immediately, so a stopping replica refuses connections at once and the retry moves on; the internal clients prediction→tournament and score→prediction retry each request through the LoadBalancer under connect/read timeouts and a fixed time limit, and score→auth has the same timeouts and falls back to user ids. `scripts/failover-demo.sh` drives it live, `scripts/smoke.sh` checks the wiring — see [`docs/demo.md`](docs/demo.md#failover). prediction-service runs one replica only (its match-cache queue is shared; see there).
 
 **Stream C — done** (`prediction-service`, `score-service`):
@@ -126,6 +127,13 @@ spring:
     mongodb:
       auto-index-creation: true      # stays here
 ```
+
+**A trace breaks silently at every hop it is not wired for.** Nothing fails: the next service just starts a new trace, and Tempo shows two short traces instead of one. Each one was checked against the resolved jars or the running stack:
+- Boot 4 renamed the Zipkin export properties to `management.tracing.export.zipkin.*` (`endpoint`, `enabled`). The 3.x `management.zipkin.tracing.*` names are deprecated at level `error` and bind to nothing, so spans go to the default `localhost:9411`. The reporter comes from `spring-boot-zipkin`; compose sets the endpoint, `application.yml` keeps export off.
+- A `RestClient` built from `RestClient.builder()` records no observation: no client span, no `traceparent` header. The `@LoadBalanced` builders in `ClientConfig` set the `ObservationRegistry` by hand.
+- Spring Cloud CircuitBreaker carries the trace onto the time limiter's thread only for a breaker created after the factory got the `ObservationRegistry`, which Spring Cloud sets in a `@PostConstruct` that can run after a client's constructor has already called `create()`. `ResilienceConfig` hands the registry over in a `Customizer`, which runs while the factory is built.
+- Spring AMQP observation is off by default: `spring.rabbitmq.template.observation-enabled` and `spring.rabbitmq.listener.simple.observation-enabled` carry the trace through RabbitMQ.
+- Tempo (2.7+) binds its receivers to `localhost` unless the endpoint says `0.0.0.0`: the other containers cannot reach it, and nothing reports an error. See `infra/tempo/tempo.yml`.
 
 **Boot 4 moved the test slice annotations into per-module packages.** The Boot 3 imports do not exist and there is no deprecation shim — you get `package ... does not exist`, which at least fails loudly, unlike the traps above. Verified against the resolved jars:
 
@@ -223,6 +231,7 @@ Testcontainers needs Docker running. On Windows the Maven wrapper needs `JAVA_HO
 | Frontend (compose) | http://localhost:3000 |
 | RabbitMQ management | http://localhost:15672 |
 | Grafana | http://localhost:3001 |
+| Tempo (API, loopback only) | http://localhost:3200 |
 
 ---
 

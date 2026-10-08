@@ -7,7 +7,25 @@
   "id": null,
   "panels": [
     {
-      "datasource": "Prometheus",
+      "type": "row",
+      "id": 1,
+      "title": "Resumen",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 0
+      },
+      "panels": []
+    },
+    {
+      "type": "stat",
+      "title": "Servicios saludables",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -30,47 +48,117 @@
         },
         "overrides": []
       },
-      "gridPos": {
-        "h": 6,
-        "w": 6,
-        "x": 0,
-        "y": 0
-      },
-      "id": 1,
       "options": {
         "colorMode": "value",
         "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
+        "textMode": "value",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
           ],
           "fields": "",
           "values": false
-        },
-        "textMode": "auto"
+        }
       },
       "targets": [
         {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
           "expr": "count(count by (service) (up{job=\"scoregrid-services\"} == 1)) or vector(0)",
           "refId": "A"
         }
       ],
-      "title": "Servicios saludables",
-      "type": "stat"
+      "description": "Servicios con al menos una réplica arriba. Son 6: eureka-server, api-gateway y los cuatro de negocio.",
+      "id": 2,
+      "gridPos": {
+        "h": 7,
+        "w": 4,
+        "x": 0,
+        "y": 1
+      }
     },
     {
-      "datasource": "Prometheus",
+      "type": "stat",
+      "title": "Instancias arriba por servicio",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "value_and_name",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "count by (service) (up{job=\"scoregrid-services\", service=~\"$service\"} == 1)",
+          "refId": "A",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "description": "Réplicas que Prometheus pudo scrapear, descubiertas desde Eureka.",
+      "id": 3,
+      "gridPos": {
+        "h": 7,
+        "w": 8,
+        "x": 4,
+        "y": 1
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests por segundo, por servicio",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "palette-classic"
           },
           "custom": {
-            "axisLabel": "requests/s",
             "drawStyle": "line",
-            "fillOpacity": 15,
+            "fillOpacity": 10,
             "lineWidth": 2,
             "showPoints": "never",
             "spanNulls": true
@@ -79,13 +167,6 @@
         },
         "overrides": []
       },
-      "gridPos": {
-        "h": 8,
-        "w": 18,
-        "x": 6,
-        "y": 0
-      },
-      "id": 2,
       "options": {
         "legend": {
           "displayMode": "list",
@@ -98,40 +179,126 @@
       },
       "targets": [
         {
-          "expr": "sum by (service) (rate(http_server_requests_seconds_count{job=\"scoregrid-services\"}[5m]))",
-          "legendFormat": "{{service}}",
-          "refId": "A"
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (service) (rate(http_server_requests_seconds_count{job=\"scoregrid-services\", service=~\"$service\", uri!~\"/actuator.*\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{service}}"
         }
       ],
-      "title": "Tasa de requests HTTP",
-      "type": "timeseries"
+      "description": "Sin /actuator: ni los scrapes de Prometheus ni los health checks de Docker.",
+      "id": 4,
+      "gridPos": {
+        "h": 7,
+        "w": 12,
+        "x": 12,
+        "y": 1
+      }
     },
     {
-      "datasource": "Prometheus",
+      "type": "row",
+      "id": 5,
+      "title": "Gateway y Resilience4J",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 8
+      },
+      "panels": []
+    },
+    {
+      "type": "state-timeline",
+      "title": "Estado de los circuit breakers",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "fixed",
+            "fixedColor": "green"
+          },
+          "mappings": [
+            {
+              "type": "value",
+              "options": {
+                "0": {
+                  "text": "Cerrado",
+                  "color": "green"
+                },
+                "1": {
+                  "text": "Semiabierto",
+                  "color": "yellow"
+                },
+                "2": {
+                  "text": "Abierto",
+                  "color": "red"
+                }
+              }
+            }
+          ]
+        },
+        "overrides": []
+      },
+      "options": {
+        "showValue": "auto",
+        "mergeValues": true,
+        "rowHeight": 0.8,
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom",
+          "showLegend": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "max by (application, name) (resilience4j_circuitbreaker_state{state=\"open\"}) * 2 + max by (application, name) (resilience4j_circuitbreaker_state{state=\"half_open\"})",
+          "refId": "A",
+          "legendFormat": "{{application}} / {{name}}"
+        }
+      ],
+      "description": "Un breaker por servicio de destino. Aparece después de su primera llamada.",
+      "id": 6,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 9
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Llamadas rechazadas por breaker abierto",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "palette-classic"
           },
           "custom": {
-            "axisLabel": "milliseconds",
             "drawStyle": "line",
             "fillOpacity": 10,
             "lineWidth": 2,
             "showPoints": "never",
             "spanNulls": true
           },
-          "unit": "ms"
+          "unit": "reqps",
+          "noValue": "0"
         },
         "overrides": []
       },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 0,
-        "y": 8
-      },
-      "id": 3,
       "options": {
         "legend": {
           "displayMode": "list",
@@ -144,23 +311,384 @@
       },
       "targets": [
         {
-          "expr": "1000 * sum by (service) (rate(http_server_requests_seconds_sum{job=\"scoregrid-services\"}[5m])) / sum by (service) (rate(http_server_requests_seconds_count{job=\"scoregrid-services\"}[5m]))",
-          "legendFormat": "{{service}}",
-          "refId": "A"
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (application, name) (rate(resilience4j_circuitbreaker_not_permitted_calls_total[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{application}} / {{name}}"
         }
       ],
-      "title": "Latencia HTTP promedio",
-      "type": "timeseries"
+      "id": 7,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 9
+      }
     },
     {
-      "datasource": "Prometheus",
+      "type": "timeseries",
+      "title": "Respuestas del gateway por código HTTP",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
       "fieldConfig": {
         "defaults": {
           "color": {
             "mode": "palette-classic"
           },
           "custom": {
-            "axisLabel": "bytes",
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (status) (rate(http_server_requests_seconds_count{service=\"api-gateway\", uri!~\"/actuator.*\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{status}}"
+        }
+      ],
+      "description": "Un 503 es el fallback DOWNSTREAM_UNAVAILABLE del gateway o un 503 del servicio.",
+      "id": 8,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 17
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Reintentos por minuto (WARN en los logs)",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "unit": "short",
+          "noValue": "0"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "sum by (service) (count_over_time({service=~\"api-gateway|prediction-service|score-service\"} |= \"Retrying\" [1m]))",
+          "refId": "A",
+          "legendFormat": "{{service}}"
+        }
+      ],
+      "description": "Cada reintento escribe una línea WARN \"Retrying ...\": no hay métrica de reintentos.",
+      "id": 9,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 17
+      }
+    },
+    {
+      "type": "row",
+      "id": 10,
+      "title": "Servicio: $service",
+      "collapsed": false,
+      "gridPos": {
+        "h": 1,
+        "w": 24,
+        "x": 0,
+        "y": 25
+      },
+      "panels": [],
+      "repeat": "service"
+    },
+    {
+      "type": "stat",
+      "title": "Instancias arriba",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "thresholds"
+          },
+          "thresholds": {
+            "mode": "absolute",
+            "steps": [
+              {
+                "color": "red",
+                "value": null
+              },
+              {
+                "color": "green",
+                "value": 1
+              }
+            ]
+          },
+          "unit": "short"
+        },
+        "overrides": []
+      },
+      "options": {
+        "colorMode": "value",
+        "graphMode": "none",
+        "justifyMode": "auto",
+        "orientation": "auto",
+        "textMode": "value",
+        "reduceOptions": {
+          "calcs": [
+            "lastNotNull"
+          ],
+          "fields": "",
+          "values": false
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "count(up{job=\"scoregrid-services\", service=\"$service\", instance=~\"$instance\"} == 1) or vector(0)",
+          "refId": "A"
+        }
+      ],
+      "id": 11,
+      "gridPos": {
+        "h": 8,
+        "w": 4,
+        "x": 0,
+        "y": 26
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Requests por segundo, por instancia",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "unit": "reqps"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (instance) (rate(http_server_requests_seconds_count{job=\"scoregrid-services\", service=\"$service\", instance=~\"$instance\", uri!~\"/actuator.*\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "id": 12,
+      "gridPos": {
+        "h": 8,
+        "w": 10,
+        "x": 4,
+        "y": 26
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Errores 5xx por segundo, por instancia",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "unit": "reqps",
+          "noValue": "0"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (instance) (rate(http_server_requests_seconds_count{job=\"scoregrid-services\", service=\"$service\", instance=~\"$instance\", uri!~\"/actuator.*\", status=~\"5..\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
+        }
+      ],
+      "id": 13,
+      "gridPos": {
+        "h": 8,
+        "w": 10,
+        "x": 14,
+        "y": 26
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Latencia por instancia: media y p95",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
+            "drawStyle": "line",
+            "fillOpacity": 10,
+            "lineWidth": 2,
+            "showPoints": "never",
+            "spanNulls": true
+          },
+          "unit": "s"
+        },
+        "overrides": []
+      },
+      "options": {
+        "legend": {
+          "displayMode": "list",
+          "placement": "bottom"
+        },
+        "tooltip": {
+          "mode": "multi",
+          "sort": "desc"
+        }
+      },
+      "targets": [
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (instance) (rate(http_server_requests_seconds_sum{job=\"scoregrid-services\", service=\"$service\", instance=~\"$instance\", uri!~\"/actuator.*\"}[$__rate_interval])) / sum by (instance) (rate(http_server_requests_seconds_count{job=\"scoregrid-services\", service=\"$service\", instance=~\"$instance\", uri!~\"/actuator.*\"}[$__rate_interval]))",
+          "refId": "A",
+          "legendFormat": "media {{instance}}"
+        },
+        {
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "histogram_quantile(0.95, sum by (instance, le) (rate(http_server_requests_seconds_bucket{job=\"scoregrid-services\", service=\"$service\", instance=~\"$instance\", uri!~\"/actuator.*\"}[$__rate_interval])))",
+          "refId": "B",
+          "legendFormat": "p95 {{instance}}"
+        }
+      ],
+      "id": 14,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 0,
+        "y": 34
+      }
+    },
+    {
+      "type": "timeseries",
+      "title": "Heap JVM usado, por instancia",
+      "datasource": {
+        "type": "prometheus",
+        "uid": "prometheus"
+      },
+      "fieldConfig": {
+        "defaults": {
+          "color": {
+            "mode": "palette-classic"
+          },
+          "custom": {
             "drawStyle": "line",
             "fillOpacity": 10,
             "lineWidth": 2,
@@ -171,13 +699,6 @@
         },
         "overrides": []
       },
-      "gridPos": {
-        "h": 8,
-        "w": 12,
-        "x": 12,
-        "y": 8
-      },
-      "id": 4,
       "options": {
         "legend": {
           "displayMode": "list",
@@ -190,51 +711,131 @@
       },
       "targets": [
         {
-          "expr": "sum by (service) (jvm_memory_used_bytes{job=\"scoregrid-services\"})",
-          "legendFormat": "{{service}}",
-          "refId": "A"
+          "datasource": {
+            "type": "prometheus",
+            "uid": "prometheus"
+          },
+          "expr": "sum by (instance) (jvm_memory_used_bytes{job=\"scoregrid-services\", service=\"$service\", instance=~\"$instance\", area=\"heap\"})",
+          "refId": "A",
+          "legendFormat": "{{instance}}"
         }
       ],
-      "title": "Memoria JVM usada",
-      "type": "timeseries"
+      "id": 15,
+      "gridPos": {
+        "h": 8,
+        "w": 12,
+        "x": 12,
+        "y": 34
+      }
     },
     {
-      "datasource": "Loki",
+      "type": "row",
+      "id": 16,
+      "title": "Logs",
+      "collapsed": false,
       "gridPos": {
-        "h": 9,
+        "h": 1,
         "w": 24,
         "x": 0,
-        "y": 16
+        "y": 42
       },
-      "id": 5,
+      "panels": []
+    },
+    {
+      "type": "logs",
+      "title": "Logs de los servicios seleccionados",
+      "datasource": {
+        "type": "loki",
+        "uid": "loki"
+      },
+      "description": "Las etiquetas container y replica dicen qué réplica escribió cada línea. Abrí una línea con traceId para saltar a su traza en Tempo.",
       "options": {
-        "deduplication": "exact",
+        "dedupStrategy": "none",
         "enableLogDetails": true,
         "prettifyLogMessage": false,
-        "showCommonLabels": false,
-        "showLabels": false,
+        "showCommonLabels": true,
+        "showLabels": true,
         "showTime": true,
         "sortOrder": "Descending",
-        "wrapLines": false
+        "wrapLogMessage": false
       },
       "targets": [
         {
-          "expr": "{service=~\".+\"}",
+          "datasource": {
+            "type": "loki",
+            "uid": "loki"
+          },
+          "expr": "{service=~\"$service\"}",
           "refId": "A"
         }
       ],
-      "title": "Logs centralizados",
-      "type": "logs"
+      "id": 17,
+      "gridPos": {
+        "h": 12,
+        "w": 24,
+        "x": 0,
+        "y": 43
+      }
     }
   ],
-  "refresh": "30s",
+  "refresh": "10s",
   "schemaVersion": 39,
   "tags": [
     "scoregrid",
     "observability"
   ],
   "templating": {
-    "list": []
+    "list": [
+      {
+        "name": "service",
+        "label": "Servicio",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(up{job=\"scoregrid-services\"}, service)",
+        "query": "label_values(up{job=\"scoregrid-services\"}, service)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      },
+      {
+        "name": "instance",
+        "label": "Instancia",
+        "type": "query",
+        "datasource": {
+          "type": "prometheus",
+          "uid": "prometheus"
+        },
+        "definition": "label_values(up{job=\"scoregrid-services\", service=~\"$service\"}, instance)",
+        "query": "label_values(up{job=\"scoregrid-services\", service=~\"$service\"}, instance)",
+        "refresh": 2,
+        "multi": true,
+        "includeAll": true,
+        "allValue": ".*",
+        "sort": 1,
+        "current": {
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
+        }
+      }
+    ]
   },
   "time": {
     "from": "now-15m",
@@ -244,5 +845,5 @@
   "timezone": "browser",
   "title": "ScoreGrid - Overview",
   "uid": "scoregrid-overview",
-  "version": 1
+  "version": 2
 }

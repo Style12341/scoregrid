@@ -31,6 +31,9 @@ spring:
     publisher-returns: true
     template:
       mandatory: true
+      # Carries the trace context into the message headers, so the consumer's
+      # span joins the publisher's trace (off by default in Spring AMQP).
+      observation-enabled: true
 
   threads:
     virtual:
@@ -90,9 +93,24 @@ management:
   metrics:
     tags:
       application: ${spring.application.name}
+    distribution:
+      percentiles-histogram:
+        # Latency buckets, so the Grafana dashboard can show p95 per instance.
+        http.server.requests: true
   tracing:
     sampling:
       probability: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:1.0}
+    export:
+      zipkin:
+        # Off here, so ./mvnw runs and tests never post spans to a missing
+        # localhost:9411. compose.yaml turns it on and points it at Tempo.
+        enabled: false
+  observations:
+    enable:
+      # Spring Security adds five spans to every request (filter chain,
+      # authentication, authorization), which bury the service-to-service
+      # hops in each trace.
+      spring.security: false
 
 logging:
   level:

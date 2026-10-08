@@ -7,12 +7,16 @@ import com.scoregrid.tournament.tournament.domain.port.out.ParticipantRepository
 import com.scoregrid.tournament.tournament.domain.port.out.TournamentRepository;
 import com.scoregrid.tournament.shared.error.DomainException;
 import com.scoregrid.tournament.shared.error.ErrorKind;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 @Service
 @Transactional
 public class JoinTournamentService implements JoinTournamentUseCase {
+
+    private static final Logger log = LoggerFactory.getLogger(JoinTournamentService.class);
 
     private final TournamentRepository tournamentRepository;
     private final ParticipantRepository participantRepository;
@@ -43,6 +47,9 @@ public class JoinTournamentService implements JoinTournamentUseCase {
         }
 
         var participant = Participant.join(command.tournamentId(), command.userId());
-        return participantRepository.save(participant);
+        var saved = participantRepository.save(participant);
+        log.info("Player joined tournament: tournamentId={} userId={}",
+                saved.getTournamentId(), saved.getUserId());
+        return saved;
     }
 }
