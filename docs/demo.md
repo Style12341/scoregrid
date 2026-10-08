@@ -236,6 +236,9 @@ when unset).
   and "Reintentos por minuto" the retries of step 4.
 - *Logs*: the selected services, each line with its `container` and
   `replica`.
+- *Trazas*: "Trazas recientes" lists the 20 newest traces through the
+  services picked in **Servicio**. Click an id in the *Traza* column to open
+  its waterfall.
 
 **Logs** (Grafana → Explore → Loki, paste a query):
 
@@ -246,10 +249,29 @@ when unset).
 | `{service="api-gateway"} \|= "Retrying"` | The retries of step 4 |
 | `{service=~".+"} \| traceId="<trace id>"` | Every line of one request, in every service it crossed |
 
-Open a line that has a `traceId` and click **Ver traza en Tempo** to jump to
-its trace.
+Click a line that has a `traceId`, here or in the dashboard's *Logs* panel:
+its details show **Links → traceId → Ver traza en Tempo**, which opens that
+trace.
 
-**Traces** (Grafana → Explore → Tempo → TraceQL, paste a trace id or a query):
+**Traces**: four ways to open one.
+
+1. Dashboard → *Trazas* → "Trazas recientes": click an id in *Traza*. The
+   trace opens in Explore.
+2. A log line → **Ver traza en Tempo**, as above.
+3. Grafana → Explore → **Tempo** → **TraceQL**: paste a trace id, or a query
+   such as `{ resource.service.name = "tournament-service" } with
+   (most_recent=true)`, then **Run query** and click a *Trace ID*: the trace
+   opens in a pane on the right. Without `with (most_recent=true)` Tempo
+   returns the first traces it finds, not the newest.
+4. Grafana → Drilldown → **Traces**: span rate, errors and duration, per
+   service under **Breakdown**. The **Traces** tab lists the traces behind
+   the graphs; click a *Trace Name* to open it in a side panel. Keep the
+   default *Last 30 minutes*: these TraceQL metrics come from the
+   metrics-generator's recent blocks (`infra/tempo/tempo.yml`), and older
+   data is not kept for them.
+
+Actuator calls (scrapes, health checks) and the gateway's Eureka polling are
+not traced, so every trace is a real request or event. Worth opening:
 
 - A retried GET from step 4: paste its trace id. The 3 s gateway span has two
   `http get` children: the 2 s connect timeout on the dead replica and, after
