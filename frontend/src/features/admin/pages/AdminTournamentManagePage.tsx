@@ -186,7 +186,14 @@ export function AdminTournamentManagePage() {
           />
         </TabsContent>
         <TabsContent value="phases" className="mt-3">
-          <PhasesTab tournament={tournament} phases={phases} onChanged={load} />
+          <PhasesTab
+            tournament={tournament}
+            phases={phases}
+            groups={groups}
+            matches={matches}
+            tournamentTeams={teams}
+            onChanged={load}
+          />
         </TabsContent>
         <TabsContent value="matches" className="mt-3">
           <MatchesTab

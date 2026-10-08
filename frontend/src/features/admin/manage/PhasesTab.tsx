@@ -22,9 +22,11 @@ import {
 import { FormField } from "@/components/common/FormField";
 import { EmptyState } from "@/components/common/states";
 import { createPhase } from "@/features/tournaments/api/tournaments";
-import type { Phase, PhaseType, Tournament } from "@/features/tournaments/types/tournament";
+import type { Group, Match, Phase, PhaseType, Team, Tournament } from "@/features/tournaments/types/tournament";
 import { apiErrorMessage } from "@/features/tournaments/errors";
 import { PHASE_TYPES, phaseLabel, phaseTypeLabel } from "@/features/tournaments/format";
+import { findKnockoutSource } from "@/features/tournaments/knockout";
+import { BuildNextPhaseDialog } from "./BuildNextPhaseDialog";
 import { isConfigurable } from "./status";
 
 function CreatePhaseDialog({
@@ -132,19 +134,38 @@ function CreatePhaseDialog({
 export function PhasesTab({
   tournament,
   phases,
+  groups,
+  matches,
+  tournamentTeams,
   onChanged,
 }: {
   tournament: Tournament;
   phases: Phase[];
+  groups: Group[];
+  matches: Match[];
+  tournamentTeams: Team[];
   onChanged: () => void;
 }) {
+  const knockoutSource = findKnockoutSource(phases, matches, groups.length > 0);
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>Fases</CardTitle>
         <CardDescription>Octavos, cuartos, semifinales y final.</CardDescription>
         {isConfigurable(tournament.status) && (
-          <CardAction>
+          <CardAction className="flex flex-wrap justify-end gap-2">
+            {knockoutSource && (
+              <BuildNextPhaseDialog
+                tournamentId={tournament.id}
+                source={knockoutSource}
+                groups={groups}
+                phases={phases}
+                matches={matches}
+                teams={tournamentTeams}
+                onCreated={onChanged}
+              />
+            )}
             <CreatePhaseDialog
               tournamentId={tournament.id}
               nextOrder={phases.length + 1}

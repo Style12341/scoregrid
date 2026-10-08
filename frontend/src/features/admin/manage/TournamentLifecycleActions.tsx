@@ -5,12 +5,8 @@ import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { deleteTournament, updateTournamentStatus } from "@/features/tournaments/api/tournaments";
 import type { Match, Tournament, TournamentStatus } from "@/features/tournaments/types/tournament";
 import { apiErrorMessage } from "@/features/tournaments/errors";
+import { isPendingMatch } from "@/features/tournaments/format";
 import { toApiError } from "@/lib/api";
-
-/** A tournament cannot finish while any match can still be played (docs/contracts.md). */
-function isPending(match: Match): boolean {
-  return match.status === "SCHEDULED" || match.status === "IN_PROGRESS" || match.status === "POSTPONED";
-}
 
 /**
  * The status transitions a tournament allows, each behind a confirmation that
@@ -29,7 +25,8 @@ export function TournamentLifecycleActions({
 }) {
   const navigate = useNavigate();
   const { status, name } = tournament;
-  const pending = matches.filter(isPending).length;
+  // A tournament cannot finish while any match is pending (docs/contracts.md).
+  const pending = matches.filter(isPendingMatch).length;
 
   async function transition(next: TournamentStatus, done: string, failed: string) {
     try {

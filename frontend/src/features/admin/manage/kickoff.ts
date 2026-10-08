@@ -20,6 +20,16 @@ export function defaultKickoff(): string {
   return toDateTimeLocal(tomorrow);
 }
 
+/** Knockout matches created together are spaced out so they can be followed one after another. */
+export const MINUTES_BETWEEN_STAGGERED_KICKOFFS = 120;
+
+/** The kickoff of the `index`-th (0-based) of several matches starting at `first`. */
+export function staggeredKickoff(first: string, index: number): Date {
+  return new Date(
+    new Date(first).getTime() + index * MINUTES_BETWEEN_STAGGERED_KICKOFFS * MILLISECONDS_PER_MINUTE,
+  );
+}
+
 /** tournament-service only accepts a new match whose kickoff is in the future. */
 export function isFutureKickoff(value: string): boolean {
   const kickoff = new Date(value).getTime();

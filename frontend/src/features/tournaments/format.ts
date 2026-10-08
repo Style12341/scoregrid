@@ -55,6 +55,11 @@ export function hasResult(match: Match): match is Match & { homeScore: number; a
   return match.homeScore !== null && match.awayScore !== null;
 }
 
+/** Can still be played or scored: neither finished nor cancelled. */
+export function isPendingMatch(match: Match): boolean {
+  return match.status === "SCHEDULED" || match.status === "IN_PROGRESS" || match.status === "POSTPONED";
+}
+
 /** The matches played in one group. */
 export function matchesInGroup(matches: Match[], groupId: string): Match[] {
   return matches.filter((match) => match.groupId === groupId);
