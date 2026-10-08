@@ -1,5 +1,5 @@
 import type { PlannedMatch } from "@/features/tournaments/fixture";
-import { formatKickoff } from "@/features/tournaments/format";
+import { formatKickoff, pluralize } from "@/features/tournaments/format";
 
 /** How many matches a planned fixture creates, over which dates, and its first round. */
 export function FixturePreview({ plan }: { plan: PlannedMatch[] }) {
@@ -17,8 +17,8 @@ export function FixturePreview({ plan }: { plan: PlannedMatch[] }) {
   return (
     <div className="flex flex-col gap-3 rounded-md border border-border bg-muted px-3.5 py-3 text-sm">
       <p>
-        Se van a crear <strong>{plan.length}</strong> {plan.length === 1 ? "partido" : "partidos"} en{" "}
-        <strong>{lastMatch.round}</strong> {lastMatch.round === 1 ? "fecha" : "fechas"}, hasta el{" "}
+        Se van a crear <strong>{pluralize(plan.length, "partido")}</strong> en{" "}
+        <strong>{pluralize(lastMatch.round, "fecha")}</strong>, hasta el{" "}
         {formatKickoff(lastMatch.startTime.toISOString())}.
       </p>
       <div>

@@ -1,6 +1,5 @@
 import { useState, type FormEvent } from "react";
 import { CalendarPlus } from "lucide-react";
-import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
@@ -13,14 +12,24 @@ import {
 } from "@/components/ui/dialog";
 import { FormField } from "@/components/common/FormField";
 import { planRoundRobin, type PlannedMatch } from "@/features/tournaments/fixture";
+import { pluralize } from "@/features/tournaments/format";
 import type { Group, Match, Team } from "@/features/tournaments/types/tournament";
 import { FixturePreview } from "./FixturePreview";
-import { MatchCreationFailures } from "./MatchCreationFailures";
-import { defaultKickoff, isFutureKickoff } from "./kickoff";
+import { BatchOutcome, CreateMatchesButton } from "./MatchBatch";
+import { defaultKickoff, isFutureKickoff, isValidKickoff } from "./kickoff";
 import { useMatchCreation, type MatchToCreate } from "./matchCreation";
 
 /** One round a day unless the admin spaces them out. */
 const DEFAULT_DAYS_BETWEEN_ROUNDS = 1;
+
+/** What is wrong with the two inputs, in the admin's words, or null. */
+function inputError(firstKickoff: string, daysBetweenRounds: string): string | null {
+  if (!isValidKickoff(firstKickoff)) return "Elegí el día y la hora de la primera fecha.";
+  if (!isFutureKickoff(firstKickoff)) return "La primera fecha tiene que ser en el futuro.";
+  const days = Number(daysBetweenRounds);
+  if (!Number.isInteger(days) || days < 1) return "Los días entre fechas tienen que ser un número entero, 1 o más.";
+  return null;
+}
 
 function toMatchToCreate(groupId: string, match: PlannedMatch): MatchToCreate {
   return {
@@ -36,7 +45,9 @@ function toMatchToCreate(groupId: string, match: PlannedMatch): MatchToCreate {
 
 /**
  * Plans the group's round robin (every team against every other once) and
- * creates the matches that do not exist yet.
+ * creates the matches that do not exist yet. The plan always comes from the
+ * current matches, so running it again after a partial failure creates only
+ * what is missing.
  */
 export function GenerateFixtureDialog({
   tournamentId,
@@ -54,52 +65,34 @@ export function GenerateFixtureDialog({
   const [open, setOpen] = useState(false);
   const [firstKickoff, setFirstKickoff] = useState(defaultKickoff);
   const [daysBetweenRounds, setDaysBetweenRounds] = useState(String(DEFAULT_DAYS_BETWEEN_ROUNDS));
-  const [error, setError] = useState<string | null>(null);
-  const creation = useMatchCreation(tournamentId);
+  const creation = useMatchCreation({ tournamentId, onCreated, onAllCreated: () => setOpen(false) });
 
-  const days = Number(daysBetweenRounds);
-  const validDays = Number.isInteger(days) && days >= 1;
-  const validKickoff = !Number.isNaN(new Date(firstKickoff).getTime());
-  const plan =
-    validDays && validKickoff ? planRoundRobin(teams, groupMatches, new Date(firstKickoff), days) : [];
+  const problem = inputError(firstKickoff, daysBetweenRounds);
+  const plan = problem
+    ? []
+    : planRoundRobin(teams, groupMatches, new Date(firstKickoff), Number(daysBetweenRounds));
 
   function handleOpenChange(next: boolean) {
     // Closing mid-batch would hide how it ended.
-    if (creation.creating) return;
+    if (creation.running) return;
     if (next) {
       setFirstKickoff(defaultKickoff());
       setDaysBetweenRounds(String(DEFAULT_DAYS_BETWEEN_ROUNDS));
-      setError(null);
       creation.reset();
     }
     setOpen(next);
   }
 
-  async function handleSubmit(event: FormEvent) {
+  function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    setError(null);
-    if (!isFutureKickoff(firstKickoff)) {
-      setError("La primera fecha tiene que ser en el futuro.");
-      return;
-    }
-    if (!validDays) {
-      setError("Los días entre fechas tienen que ser un número entero, 1 o más.");
-      return;
-    }
-
-    const failures = await creation.create(plan.map((match) => toMatchToCreate(group.id, match)));
-    onCreated();
-    const created = plan.length - failures.length;
-    if (failures.length === 0) {
-      toast.success("Fixture generado", {
-        description: `Se crearon ${created} partidos en ${group.name}.`,
-      });
-      setOpen(false);
-    } else {
-      toast.error("Algunos partidos no se crearon", {
-        description: `Se crearon ${created} de ${plan.length}. El detalle está en el diálogo.`,
-      });
-    }
+    if (problem || plan.length === 0) return;
+    void creation.run(
+      async () => plan.map((match) => toMatchToCreate(group.id, match)),
+      (created) => ({
+        title: "Fixture generado",
+        description: `Se crearon ${pluralize(created, "partido")} en ${group.name}.`,
+      }),
+    );
   }
 
   return (
@@ -110,7 +103,7 @@ export function GenerateFixtureDialog({
           Generar fixture
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[90vh] overflow-y-auto" showCloseButton={!creation.creating}>
+      <DialogContent className="max-h-[90vh] overflow-y-auto" showCloseButton={!creation.running}>
         <DialogHeader>
           <DialogTitle>Generar fixture de {group.name}</DialogTitle>
           <DialogDescription>
@@ -144,20 +137,16 @@ export function GenerateFixtureDialog({
             </FormField>
           </div>
 
-          <FixturePreview plan={plan} />
-
-          {error && (
+          {problem ? (
             <p role="alert" className="rounded-md bg-destructive/10 px-3.5 py-3 text-sm font-bold text-destructive">
-              {error}
+              {problem}
             </p>
+          ) : (
+            <FixturePreview plan={plan} />
           )}
-          <MatchCreationFailures failures={creation.failures} />
+          <BatchOutcome result={creation.result} />
 
-          <Button type="submit" disabled={creation.creating || plan.length === 0}>
-            {creation.creating
-              ? `Creando ${creation.handled} de ${plan.length}…`
-              : `Crear ${plan.length} ${plan.length === 1 ? "partido" : "partidos"}`}
-          </Button>
+          <CreateMatchesButton count={plan.length} running={creation.running} progress={creation.progress} />
         </form>
       </DialogContent>
     </Dialog>

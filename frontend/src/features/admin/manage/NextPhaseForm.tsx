@@ -1,5 +1,4 @@
 import type { FormEvent } from "react";
-import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -12,15 +11,22 @@ import { FormField } from "@/components/common/FormField";
 import { formatKickoff, phaseTypeLabel } from "@/features/tournaments/format";
 import type { ProposedMatch } from "@/features/tournaments/knockout";
 import type { Match, Team } from "@/features/tournaments/types/tournament";
-import { MatchCreationFailures } from "./MatchCreationFailures";
-import { MINUTES_BETWEEN_STAGGERED_KICKOFFS } from "./kickoff";
-import type { MatchCreationFailure } from "./matchCreation";
+import { BatchOutcome, CreateMatchesButton } from "./MatchBatch";
+import { HOURS_BETWEEN_STAGGERED_KICKOFFS } from "./kickoff";
+import type { BatchResult } from "./matchCreation";
+import type { NextPhaseProposalForm, TeamSide } from "./useNextPhaseProposal";
 
-export type TeamSide = "home" | "away";
+/** Everything the form renders: the proposal, plus the running batch and its submit. */
+export interface NextPhaseFormModel extends NextPhaseProposalForm {
+  batch: {
+    running: boolean;
+    progress: { handled: number; total: number } | null;
+    result: BatchResult | null;
+  };
+  onSubmit: (event: FormEvent) => void;
+}
 
-const MINUTES_PER_HOUR = 60;
-
-/** After a draw or a cancellation the score does not say who went through: the admin does. */
+/** After a draw the score does not say who went through: the admin does. */
 function AdvancingTeamPicks({
   matches,
   picks,
@@ -38,11 +44,7 @@ function AdvancingTeamPicks({
       {matches.map((match) => (
         <FormField
           key={match.id}
-          label={
-            match.status === "CANCELLED"
-              ? `${match.homeTeam.name} – ${match.awayTeam.name} (cancelado)`
-              : `${match.homeTeam.name} ${match.homeScore} – ${match.awayScore} ${match.awayTeam.name}`
-          }
+          label={`${match.homeTeam.name} ${match.homeScore} – ${match.awayScore} ${match.awayTeam.name}`}
         >
           {(field) => (
             <Select value={picks[match.id] ?? ""} onValueChange={(teamId) => onPick(match.id, teamId)}>
@@ -133,100 +135,69 @@ function ProposedMatchRow({
 }
 
 /** The editable proposal for the next knockout phase. Renders only; the dialog owns the state. */
-export function NextPhaseForm({
-  undecided,
-  picks,
-  onPick,
-  proposals,
-  kickoffs,
-  teams,
-  onProposalChange,
-  offersThirdPlace,
-  includeThirdPlace,
-  onIncludeThirdPlaceChange,
-  firstKickoff,
-  onFirstKickoffChange,
-  error,
-  failures,
-  creating,
-  handled,
-  onSubmit,
-}: {
-  undecided: Match[];
-  picks: Record<string, string>;
-  onPick: (matchId: string, teamId: string) => void;
-  proposals: ProposedMatch[];
-  /** One per proposal, null while the first kickoff is not a valid date. */
-  kickoffs: (Date | null)[];
-  teams: Team[];
-  onProposalChange: (index: number, side: TeamSide, teamId: string) => void;
-  offersThirdPlace: boolean;
-  includeThirdPlace: boolean;
-  onIncludeThirdPlaceChange: (include: boolean) => void;
-  firstKickoff: string;
-  onFirstKickoffChange: (value: string) => void;
-  error: string | null;
-  failures: MatchCreationFailure[];
-  creating: boolean;
-  handled: number;
-  onSubmit: (event: FormEvent) => void;
-}) {
+export function NextPhaseForm({ model }: { model: NextPhaseFormModel }) {
   return (
-    <form onSubmit={onSubmit} className="flex flex-col gap-4" noValidate>
-      <AdvancingTeamPicks matches={undecided} picks={picks} onPick={onPick} />
+    <form onSubmit={model.onSubmit} className="flex flex-col gap-4" noValidate>
+      <AdvancingTeamPicks matches={model.undecided} picks={model.picks} onPick={model.onPick} />
 
       <FormField
         label="Primer partido"
-        hint={`Los siguientes se juegan cada ${MINUTES_BETWEEN_STAGGERED_KICKOFFS / MINUTES_PER_HOUR} horas.`}
+        hint={`Los siguientes se juegan cada ${HOURS_BETWEEN_STAGGERED_KICKOFFS} horas.`}
         required
       >
         {(field) => (
           <Input
             {...field}
             type="datetime-local"
-            value={firstKickoff}
-            onChange={(event) => onFirstKickoffChange(event.target.value)}
+            value={model.firstKickoff}
+            onChange={(event) => model.onFirstKickoffChange(event.target.value)}
           />
         )}
       </FormField>
 
-      {offersThirdPlace && (
+      {model.offersThirdPlace && (
         <label className="flex items-center gap-2 text-sm font-semibold">
           <input
             type="checkbox"
             className="size-4 accent-primary"
-            checked={includeThirdPlace}
-            onChange={(event) => onIncludeThirdPlaceChange(event.target.checked)}
+            checked={model.includeThirdPlace}
+            onChange={(event) => model.onIncludeThirdPlaceChange(event.target.checked)}
           />
           Incluir el partido por el tercer puesto
         </label>
       )}
 
-      <ol className="flex flex-col gap-2">
-        {proposals.map((proposal, index) => (
-          <ProposedMatchRow
-            key={`${proposal.phaseType}-${index}`}
-            number={index + 1}
-            proposal={proposal}
-            kickoff={kickoffs[index]}
-            teams={teams}
-            onChange={(side, teamId) => onProposalChange(index, side, teamId)}
-          />
-        ))}
-      </ol>
+      {model.proposals.length === 0 ? (
+        <p className="rounded-md bg-muted px-3.5 py-3 text-sm text-muted-foreground">
+          No queda ningún partido por crear en esta fase.
+        </p>
+      ) : (
+        <ol className="flex flex-col gap-2">
+          {model.proposals.map((proposal, index) => (
+            <ProposedMatchRow
+              key={`${proposal.phaseType}-${index}`}
+              number={index + 1}
+              proposal={proposal}
+              kickoff={model.kickoffs[index]}
+              teams={model.teams}
+              onChange={(side, teamId) => model.onTeamChange(index, side, teamId)}
+            />
+          ))}
+        </ol>
+      )}
 
-      {error && (
+      {model.error && (
         <p role="alert" className="rounded-md bg-destructive/10 px-3.5 py-3 text-sm font-bold text-destructive">
-          {error}
+          {model.error}
         </p>
       )}
-      <MatchCreationFailures failures={failures} />
+      <BatchOutcome result={model.batch.result} />
 
-      <Button type="submit" disabled={creating || proposals.length === 0}>
-        {creating
-          ? `Creando ${handled} de ${proposals.length}…`
-          : `Crear ${proposals.length} ${proposals.length === 1 ? "partido" : "partidos"}`}
-      </Button>
+      <CreateMatchesButton
+        count={model.proposals.length}
+        running={model.batch.running}
+        progress={model.batch.progress}
+      />
     </form>
   );
 }

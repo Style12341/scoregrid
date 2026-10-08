@@ -146,7 +146,7 @@ export function PhasesTab({
   tournamentTeams: Team[];
   onChanged: () => void;
 }) {
-  const knockoutSource = findKnockoutSource(phases, matches, groups.length > 0);
+  const knockoutSource = findKnockoutSource(phases, matches, groups.length);
 
   return (
     <Card>

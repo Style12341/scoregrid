@@ -1,3 +1,4 @@
+import axios from "axios";
 import { toApiError } from "@/lib/api";
 
 const ERROR_MESSAGES: Record<string, string> = {
@@ -21,4 +22,21 @@ export function apiErrorMessage(error: unknown, fallback: string): string {
 
 export function isNotFoundError(error: unknown): boolean {
   return toApiError(error)?.status === 404;
+}
+
+/**
+ * The request never reached a working service: no response at all (network
+ * down, gateway unreachable) or 503 DOWNSTREAM_UNAVAILABLE (an open breaker).
+ * Sending more requests right away would only fail the same way.
+ */
+export function isServiceUnavailable(error: unknown): boolean {
+  return axios.isAxiosError(error) && (!error.response || error.response.status === 503);
+}
+
+/** apiErrorMessage, with a message for a request that got no response at all. */
+export function requestErrorMessage(error: unknown, fallback: string): string {
+  if (axios.isAxiosError(error) && !error.response) {
+    return "No hay conexión con el servidor. Revisá la red y volvé a intentarlo.";
+  }
+  return apiErrorMessage(error, fallback);
 }

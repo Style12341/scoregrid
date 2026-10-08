@@ -46,6 +46,11 @@ export function phaseLabel(phase: { name: string | null; type: PhaseType }): str
   return phase.name || phaseTypeLabel(phase.type);
 }
 
+/** "1 partido", "3 partidos": the count with its noun in the matching number. */
+export function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
 /** The short code shown next to a full team name, when it differs. */
 export function teamCode(team: Pick<TeamRef, "name" | "shortName">): string | null {
   return team.shortName && team.shortName !== team.name ? team.shortName : null;

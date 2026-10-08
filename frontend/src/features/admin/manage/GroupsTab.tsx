@@ -193,19 +193,18 @@ export function GroupsTab({
   tournamentTeams: Team[];
   onChanged: () => void;
 }) {
-  const [teamsByGroup, setTeamsByGroup] = useState<Record<string, Team[]>>({});
-  const [loading, setLoading] = useState(true);
+  // Null until the first load. Later reloads (after every change on the page)
+  // keep the groups on screen, so an open dialog is not unmounted mid-task.
+  const [teamsByGroup, setTeamsByGroup] = useState<Record<string, Team[]> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadGroupTeams = useCallback(() => {
-    setLoading(true);
     setError(null);
     Promise.all(groups.map((group) => getGroupTeams(group.id).then((teams) => [group.id, teams] as const)))
       .then((entries) => setTeamsByGroup(Object.fromEntries(entries)))
       .catch((requestError) =>
         setError(apiErrorMessage(requestError, "No pudimos cargar los equipos de cada grupo.")),
-      )
-      .finally(() => setLoading(false));
+      );
   }, [groups]);
 
   useEffect(() => {
@@ -214,7 +213,7 @@ export function GroupsTab({
 
   const canEdit = isConfigurable(tournament.status);
   // A team belongs to at most one group (ALREADY_IN_GROUP), so offer only free ones.
-  const groupedIds = new Set(Object.values(teamsByGroup).flat().map((team) => team.id));
+  const groupedIds = new Set(Object.values(teamsByGroup ?? {}).flat().map((team) => team.id));
   const freeTeams = tournamentTeams.filter((team) => !groupedIds.has(team.id));
 
   return (
@@ -240,12 +239,19 @@ export function GroupsTab({
             title="Todavía no hay grupos"
             description="Creá grupos para organizar los equipos del torneo."
           />
-        ) : loading ? (
-          <LoadingState label="Cargando grupos…" />
-        ) : error ? (
-          <ErrorState title="No pudimos cargar los grupos" description={error} onRetry={loadGroupTeams} />
+        ) : teamsByGroup === null ? (
+          error ? (
+            <ErrorState title="No pudimos cargar los grupos" description={error} onRetry={loadGroupTeams} />
+          ) : (
+            <LoadingState label="Cargando grupos…" />
+          )
         ) : (
           <div className="grid gap-3 xl:grid-cols-2">
+            {error && (
+              <p role="alert" className="text-sm font-bold text-destructive xl:col-span-2">
+                {error} Lo que ves puede estar desactualizado.
+              </p>
+            )}
             {groups.map((group) => {
               const teams = teamsByGroup[group.id] ?? [];
               const groupMatches = matchesInGroup(matches, group.id);
