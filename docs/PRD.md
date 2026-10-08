@@ -49,8 +49,7 @@ Affected: tournament organisers (unpaid manual labour, and blame when the maths 
 
 Out of scope for the first delivery. Each is a deliberate cut, not an oversight.
 
-- **Automatic knockout bracket generation from group standings** — the admin creates knockout fixtures manually. Deferred: the qualification rules (points, goal difference, head-to-head, fair play) are a project in themselves.
-- **Group standings tables** (the sporting table: W/D/L, goal difference) — deferred. The product scores *predictions*, not teams. Nothing else depends on it.
+- **Tournament formats in the backend** — tournament-service stores groups, phases and matches; it does not generate fixtures, brackets or standings. The admin UI now offers helpers on top of the existing endpoints: a per-group standings table (3/1/0, then goal difference and goals for; no head-to-head or fair play), a round-robin "Generar fixture" per group, and "Armar siguiente fase", which proposes the next knockout round from the tables or the previous winners for the admin to edit before the matches are created one by one. Nothing server-side depends on them.
 - **Notification service** (email/push for closing predictions, results, ranking moves) — deferred. `prediction.created` / `prediction.updated` events are published in v1 specifically so this service can be added later without touching Prediction Service.
 - **Top-scorer / qualified-team prediction types** — the prediction document is schema-flexible to allow them; no scoring path is built.
 - **Private tournaments and invitations** — every tournament is visible to every authenticated user.
@@ -126,7 +125,7 @@ A tournament has zero or more groups (Group A, Group B, …), each with a name a
 A tournament has zero or more phases, each with a type and display order:
 `GROUP_STAGE`, `ROUND_OF_16`, `QUARTER_FINAL`, `SEMI_FINAL`, `THIRD_PLACE`, `FINAL`.
 
-Fixtures inside a phase are created manually by the admin (see Non-Goals).
+Fixtures inside a phase are created by the admin, by hand or with the "Armar siguiente fase" UI helper (see Non-Goals).
 
 ### F6 — Matches
 

@@ -274,7 +274,7 @@ If the task spans another owner's files, say so and propose the split rather tha
 
 ## 9. Scope discipline
 
-[`docs/PRD.md`](docs/PRD.md) has an explicit Non-Goals list: automatic bracket generation, group standings tables, notifications, top-scorer predictions, private tournaments, per-tournament scoring rules. All **deliberately out**.
+[`docs/PRD.md`](docs/PRD.md) has an explicit Non-Goals list: tournament formats in the backend (standings, fixture and next-phase generation exist only as admin UI helpers over the regular endpoints), notifications, top-scorer predictions, private tournaments, per-tournament scoring rules. All **deliberately out**.
 
 Do not implement them because they seem natural. If one is genuinely needed, say why and let a human decide.
 
