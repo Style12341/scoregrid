@@ -4,7 +4,6 @@ import { Calendar } from "lucide-react";
 import { usePageHeader } from "@/components/layout/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { PageTitle } from "@/components/common/PageTitle";
 import { TournamentStatusBadge } from "@/components/common/StatusBadge";
 import { LoadingState, EmptyState, ErrorState } from "@/components/common/states";
 import { Tabs, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -61,7 +60,7 @@ function TournamentCard({ tournament }: { tournament: Tournament }) {
 }
 
 export function TournamentListPage() {
-  usePageHeader("Torneos");
+  usePageHeader("Torneos", "Elegí un torneo para ver el fixture y pronosticar.");
 
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [loading, setLoading] = useState(true);
@@ -88,34 +87,27 @@ export function TournamentListPage() {
 
   if (error) {
     return (
-      <ErrorState title="Error" description={error} onRetry={() => load(statusFilter)} />
+      <ErrorState title="No pudimos cargar los torneos" description={error} onRetry={() => load(statusFilter)} />
     );
   }
 
   return (
     <div className="flex flex-col gap-6">
-      <div className="flex flex-wrap items-center justify-between gap-4">
-        <PageTitle
-          title="Torneos"
-          action={
-            <Tabs
-              value={statusFilter ?? "all"}
-              onValueChange={(v) => {
-                setPage(0);
-                setStatusFilter(v === "all" ? null : v);
-              }}
-            >
-              <TabsList variant="pill">
-                {STATUS_FILTERS.map((f) => (
-                  <TabsTrigger key={f.value ?? "all"} value={f.value ?? "all"}>
-                    {f.label}
-                  </TabsTrigger>
-                ))}
-              </TabsList>
-            </Tabs>
-          }
-        />
-      </div>
+      <Tabs
+        value={statusFilter ?? "all"}
+        onValueChange={(v) => {
+          setPage(0);
+          setStatusFilter(v === "all" ? null : v);
+        }}
+      >
+        <TabsList variant="pill" aria-label="Filtrar torneos por estado">
+          {STATUS_FILTERS.map((f) => (
+            <TabsTrigger key={f.value ?? "all"} value={f.value ?? "all"}>
+              {f.label}
+            </TabsTrigger>
+          ))}
+        </TabsList>
+      </Tabs>
 
       {loading ? (
         <LoadingState label="Cargando torneos…" />

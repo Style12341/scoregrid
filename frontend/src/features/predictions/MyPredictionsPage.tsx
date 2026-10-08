@@ -1,6 +1,8 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { usePageHeader } from "@/components/layout/page-header";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Card } from "@/components/ui/card";
 import {
   Table,
   TableBody,
@@ -9,9 +11,11 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { MatchStatusBadge, PredictionLockBadge } from "@/components/common/StatusBadge";
 import { LoadingState, EmptyState, ErrorState } from "@/components/common/states";
-import { getMatch } from "@/features/tournaments/api/tournaments";
-import type { Match } from "@/features/tournaments/types/tournament";
+import { getMatch, getTournament } from "@/features/tournaments/api/tournaments";
+import type { Match, Tournament } from "@/features/tournaments/types/tournament";
+import { formatKickoff, hasResult } from "@/features/tournaments/format";
 import { getMyPredictions, type Prediction } from "./api";
 
 type PredictionRow = {
@@ -22,14 +26,32 @@ type PredictionRow = {
 const REFRESH_INTERVAL_MS = 5000;
 
 export function MyPredictionsPage() {
-  usePageHeader("Mis pronósticos");
+  usePageHeader("Mis pronósticos", "Lo que pronosticaste en cada torneo.");
 
   const [predictions, setPredictions] = useState<PredictionRow[]>([]);
+  const [tournaments, setTournaments] = useState<Record<string, Tournament>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [retry, setRetry] = useState(0);
+  // Tournament names do not change while polling: fetch each one once.
+  const requestedTournaments = useRef(new Set<string>());
 
   useEffect(() => {
     let disposed = false;
+
+    async function loadTournamentNames(ids: string[]) {
+      const missing = ids.filter((id) => !requestedTournaments.current.has(id));
+      missing.forEach((id) => requestedTournaments.current.add(id));
+      const loaded = await Promise.all(missing.map((id) => getTournament(id).catch(() => null)));
+      if (disposed) return;
+      const found = loaded.filter((t): t is Tournament => t !== null);
+      if (found.length > 0) {
+        setTournaments((current) => ({
+          ...current,
+          ...Object.fromEntries(found.map((t) => [t.id, t])),
+        }));
+      }
+    }
 
     async function refresh() {
       try {
@@ -48,10 +70,11 @@ export function MyPredictionsPage() {
           setPredictions(nextRows);
           setError(null);
           setLoading(false);
+          void loadTournamentNames([...new Set(nextPredictions.map((p) => p.tournamentId))]);
         }
       } catch {
         if (!disposed) {
-          setError("No se pudieron cargar los pronósticos.");
+          setError("Puede que el servicio de pronósticos no esté disponible. Volvé a intentarlo en unos segundos.");
           setLoading(false);
         }
       }
@@ -64,61 +87,120 @@ export function MyPredictionsPage() {
       disposed = true;
       window.clearInterval(interval);
     };
-  }, []);
+  }, [retry]);
 
-  if (loading) return <LoadingState />;
-  if (error) return <ErrorState title="Error" description={error} />;
+  if (loading) return <LoadingState label="Cargando tus pronósticos…" />;
+  if (error && predictions.length === 0) {
+    return (
+      <ErrorState
+        title="No pudimos cargar tus pronósticos"
+        description={error}
+        onRetry={() => {
+          setLoading(true);
+          setRetry((r) => r + 1);
+        }}
+      />
+    );
+  }
   if (predictions.length === 0) {
     return (
       <EmptyState
-        title="Sin pronósticos"
-        description="Todavía no hiciste ningún pronóstico. Buscá un torneo activo y empezá a jugar."
+        title="Todavía no hiciste ningún pronóstico"
+        description="Entrá a un torneo activo, inscribite y elegí un partido del fixture."
+        action={
+          <Button asChild>
+            <Link to="/tournaments">Ver torneos</Link>
+          </Button>
+        }
       />
     );
   }
 
   return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Mis pronósticos</CardTitle>
-      </CardHeader>
-      <CardContent>
-        <Table>
-          <TableHeader>
-            <TableRow>
-              <TableHead>Partido</TableHead>
-              <TableHead>Pronóstico</TableHead>
-              <TableHead>Resultado</TableHead>
-              <TableHead>Estado</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {predictions.map(({ prediction, match }) => {
-              const matchLabel = match
-                ? `${match.homeTeam.shortName || match.homeTeam.name} vs ${match.awayTeam.shortName || match.awayTeam.name}`
-                : prediction.matchId;
-              const resultLabel = match !== null && match.homeScore !== null && match.awayScore !== null
-                ? `${match.homeScore} – ${match.awayScore}`
-                : "Pendiente";
-
-              return (
-                <TableRow key={prediction.id}>
-                  <TableCell className="text-sm">{matchLabel}</TableCell>
-                  <TableCell className="text-sm font-bold">
-                    {prediction.homeScore} – {prediction.awayScore}
-                  </TableCell>
-                  <TableCell className="text-sm text-muted-foreground">
-                    {resultLabel}
-                  </TableCell>
-                  <TableCell className="text-sm">
-                    {match ? (match.predictionsOpen ? "Abierto" : "Cerrado") : "Sin datos"}
-                  </TableCell>
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </CardContent>
+    <Card className="px-0 py-0">
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead className="pl-5">Partido</TableHead>
+            <TableHead>Torneo</TableHead>
+            <TableHead>Tu pronóstico</TableHead>
+            <TableHead>Resultado</TableHead>
+            <TableHead>Estado</TableHead>
+            <TableHead className="pr-5 text-right">
+              <span className="sr-only">Acciones</span>
+            </TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {predictions.map(({ prediction, match }) => {
+            const tournament = tournaments[prediction.tournamentId];
+            const matchName = match
+              ? `${match.homeTeam.name} – ${match.awayTeam.name}`
+              : "Partido no disponible";
+            return (
+              <TableRow key={prediction.id}>
+                <TableCell className="pl-5">
+                  <div className="flex flex-col">
+                    <span className="font-bold">{matchName}</span>
+                    {match && (
+                      <span className="text-xs text-muted-foreground">
+                        {formatKickoff(match.startTime)}
+                      </span>
+                    )}
+                  </div>
+                </TableCell>
+                <TableCell className="text-sm">
+                  {tournament ? (
+                    <Link
+                      to={`/tournaments/${tournament.id}`}
+                      className="rounded-sm hover:text-primary hover:underline"
+                    >
+                      {tournament.name}
+                    </Link>
+                  ) : (
+                    <span className="text-muted-foreground">…</span>
+                  )}
+                </TableCell>
+                <TableCell className="text-base font-extrabold tabular-nums">
+                  {prediction.homeScore} – {prediction.awayScore}
+                </TableCell>
+                <TableCell className="text-sm tabular-nums text-muted-foreground">
+                  {match && hasResult(match) ? (
+                    <span className="font-bold text-foreground">
+                      {match.homeScore} – {match.awayScore}
+                    </span>
+                  ) : (
+                    "Pendiente"
+                  )}
+                </TableCell>
+                <TableCell>
+                  {match ? (
+                    match.status === "SCHEDULED" ? (
+                      <PredictionLockBadge open={match.predictionsOpen} />
+                    ) : (
+                      <MatchStatusBadge status={match.status} />
+                    )
+                  ) : (
+                    <span className="text-sm text-muted-foreground">Sin datos</span>
+                  )}
+                </TableCell>
+                <TableCell className="pr-5 text-right">
+                  {match && (
+                    <Button asChild size="sm" variant={match.predictionsOpen ? "outline" : "ghost"}>
+                      <Link
+                        to={`/matches/${match.id}/predict`}
+                        aria-label={`${match.predictionsOpen ? "Editar" : "Ver"} pronóstico de ${matchName}`}
+                      >
+                        {match.predictionsOpen ? "Editar" : "Ver"}
+                      </Link>
+                    </Button>
+                  )}
+                </TableCell>
+              </TableRow>
+            );
+          })}
+        </TableBody>
+      </Table>
     </Card>
   );
 }

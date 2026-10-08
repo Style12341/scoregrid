@@ -1,9 +1,13 @@
-import { useCallback } from "react";
-import { useParams } from "react-router-dom";
+import { useCallback, useEffect, useState } from "react";
+import { Link, useParams } from "react-router-dom";
+import { Trophy } from "lucide-react";
 import { useAuth } from "@/auth/AuthContext";
 import { EmptyState, ErrorState, LoadingState } from "@/components/common/states";
 import { MetricCard } from "@/components/common/MetricCard";
+import { Button } from "@/components/ui/button";
 import { Card } from "@/components/ui/card";
+import { getTournament } from "@/features/tournaments/api/tournaments";
+import type { Tournament } from "@/features/tournaments/types/tournament";
 import { usePageHeader } from "@/components/layout/page-header";
 import { fetchTournamentRanking } from "./api";
 import type { TournamentRankingEntry } from "./api";
@@ -25,10 +29,40 @@ const COLUMNS: RankingColumn<TournamentRankingEntry>[] = [
 ];
 
 export function TournamentRankingPage() {
-  usePageHeader("Ranking del torneo", "Posiciones según los partidos ya finalizados.");
-
   const { tournamentId } = useParams<{ tournamentId: string }>();
   const { user } = useAuth();
+  const [tournament, setTournament] = useState<Tournament | null>(null);
+
+  // The name is context, not content: if it fails the ranking still renders.
+  useEffect(() => {
+    if (!tournamentId) return;
+    let cancelled = false;
+    setTournament(null);
+    getTournament(tournamentId)
+      .then((t) => {
+        if (!cancelled) setTournament(t);
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [tournamentId]);
+
+  const name = tournament?.name ?? "Ranking del torneo";
+  usePageHeader({
+    title: tournament ? `Ranking de ${tournament.name}` : "Ranking del torneo",
+    subtitle: "Posiciones según los partidos ya finalizados.",
+    breadcrumbs: [{ label: "Rankings", to: "/rankings/global" }, { label: name }],
+  });
+
+  const backToTournament = tournamentId && (
+    <Button asChild variant="secondary" size="sm">
+      <Link to={`/tournaments/${tournamentId}`}>
+        <Trophy aria-hidden="true" />
+        Ver torneo
+      </Link>
+    </Button>
+  );
 
   // Keyed on tournamentId so navigating between tournaments refetches, and the
   // cancellation flag in useRanking discards whichever response loses the race.
@@ -68,12 +102,14 @@ export function TournamentRankingPage() {
       <EmptyState
         title="Todavía no hay posiciones"
         description="Las posiciones aparecen cuando se carga el resultado del primer partido del torneo."
+        action={backToTournament}
       />
     );
   }
 
   return (
     <div className="flex flex-col gap-5">
+      <div className="flex justify-end">{backToTournament}</div>
       {me && (
         <div className="grid gap-4 sm:grid-cols-3">
           <MetricCard
@@ -101,7 +137,7 @@ export function TournamentRankingPage() {
           entries={entries}
           columns={COLUMNS}
           currentUserId={user?.id}
-          caption="Ranking del torneo, ordenado por puntos."
+          caption={`Ranking de ${name}, ordenado por puntos.`}
         />
       </Card>
     </div>

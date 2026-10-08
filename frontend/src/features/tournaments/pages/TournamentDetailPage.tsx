@@ -1,6 +1,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { Link, useParams } from "react-router-dom";
-import { Calendar } from "lucide-react";
+import { BarChart3, Calendar, CheckCircle2, Settings } from "lucide-react";
+import { toast } from "sonner";
 import { useAuth } from "@/auth/AuthContext";
 import { usePageHeader } from "@/components/layout/page-header";
 import { Card, CardContent } from "@/components/ui/card";
@@ -8,7 +9,7 @@ import { Button } from "@/components/ui/button";
 import { TournamentStatusBadge, MatchStatusBadge, PredictionLockBadge } from "@/components/common/StatusBadge";
 import { LoadingState, EmptyState, ErrorState } from "@/components/common/states";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Separator } from "@/components/ui/separator";
+import { getMyPredictions, type Prediction } from "@/features/predictions/api";
 import {
   getTournament,
   listGroups,
@@ -26,26 +27,8 @@ import type {
   Team,
 } from "../types/tournament";
 import { apiErrorMessage } from "../errors";
-
-function formatDate(dateStr: string): string {
-  return new Date(dateStr).toLocaleDateString("es-AR", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
-function formatDateOnly(dateStr: string | null): string {
-  if (!dateStr) return "Sin fecha";
-  const [year, month, day] = dateStr.split("-").map(Number);
-  return new Date(year, month - 1, day).toLocaleDateString("es-AR", {
-    day: "numeric",
-    month: "short",
-    year: "numeric",
-  });
-}
+import { byKickoff, formatDateOnly, formatKickoff, phaseLabel, phaseTypeLabel, teamCode } from "../format";
+import { MatchTeams, ScoreOrVs } from "../components/MatchTeams";
 
 // ── Groups Tab ────────────────────────────────────────────────────────────
 
@@ -81,39 +64,43 @@ function GroupsTab({ tournamentId }: { tournamentId: string }) {
   }, [load]);
 
   if (loading) return <LoadingState label="Cargando grupos…" />;
-  if (error) return <ErrorState title="Error" description={error} onRetry={load} />;
+  if (error) return <ErrorState title="No pudimos cargar los grupos" description={error} onRetry={load} />;
   if (groups.length === 0) {
     return (
       <EmptyState
-        title="Sin grupos"
+        title="Todavía no hay grupos"
         description="Este torneo todavía no tiene grupos definidos."
       />
     );
   }
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="grid gap-4 md:grid-cols-2">
       {groups.map((group) => {
         const teams = teamsByGroup[group.id] ?? [];
         return (
           <Card key={group.id}>
             <CardContent>
-              <h4 className="mb-3 text-base font-bold">{group.name}</h4>
+              <h3 className="mb-3 text-base font-bold">{group.name}</h3>
               {teams.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
                   Sin equipos asignados.
                 </p>
               ) : (
-                <div className="flex flex-wrap gap-2">
-                  {teams.map((team) => (
-                    <span
-                      key={team.id}
-                      className="rounded-full border border-border bg-muted px-3 py-1 text-sm font-medium"
-                    >
-                      {team.shortName || team.name}
-                    </span>
-                  ))}
-                </div>
+                <ul className="flex flex-wrap gap-2">
+                  {teams.map((team) => {
+                    const code = teamCode(team);
+                    return (
+                      <li
+                        key={team.id}
+                        className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-3 py-1 text-sm font-medium"
+                      >
+                        {team.name}
+                        {code && <span className="text-xs font-semibold text-muted-foreground">{code}</span>}
+                      </li>
+                    );
+                  })}
+                </ul>
               )}
             </CardContent>
           </Card>
@@ -124,15 +111,6 @@ function GroupsTab({ tournamentId }: { tournamentId: string }) {
 }
 
 // ── Phases Tab ────────────────────────────────────────────────────────────
-
-const PHASE_LABELS: Record<string, string> = {
-  GROUP_STAGE: "Fase de grupos",
-  ROUND_OF_16: "Octavos de final",
-  QUARTER_FINAL: "Cuartos de final",
-  SEMI_FINAL: "Semifinal",
-  THIRD_PLACE: "Tercer puesto",
-  FINAL: "Final",
-};
 
 function PhasesTab({ tournamentId }: { tournamentId: string }) {
   const [phases, setPhases] = useState<Phase[]>([]);
@@ -153,132 +131,235 @@ function PhasesTab({ tournamentId }: { tournamentId: string }) {
   }, [load]);
 
   if (loading) return <LoadingState label="Cargando fases…" />;
-  if (error) return <ErrorState title="Error" description={error} onRetry={load} />;
+  if (error) return <ErrorState title="No pudimos cargar las fases" description={error} onRetry={load} />;
   if (phases.length === 0) {
     return (
       <EmptyState
-        title="Sin fases"
+        title="Todavía no hay fases"
         description="Este torneo todavía no tiene fases definidas."
       />
     );
   }
 
   return (
-    <div className="flex flex-col gap-3">
+    <ol className="flex flex-col gap-3">
       {phases.map((phase) => (
-        <div
+        <li
           key={phase.id}
           className="flex items-center justify-between rounded-lg border border-border bg-card px-5 py-3"
         >
-          <div>
-            <p className="text-sm font-bold">
-              {phase.name ?? PHASE_LABELS[phase.type] ?? phase.type}
-            </p>
-            <p className="text-xs text-muted-foreground">
-              {PHASE_LABELS[phase.type] ?? phase.type}
-            </p>
-          </div>
-          <span className="text-xs text-muted-foreground">
-            Orden: {phase.displayOrder}
-          </span>
-        </div>
+          <span className="text-sm font-bold">{phaseLabel(phase)}</span>
+          {phase.name && (
+            <span className="text-xs text-muted-foreground">{phaseTypeLabel(phase.type)}</span>
+          )}
+        </li>
       ))}
-    </div>
+    </ol>
   );
 }
 
 // ── Fixture Tab ────────────────────────────────────────────────────────────
 
-function FixtureTab({ tournamentId }: { tournamentId: string }) {
+const STATUS_FILTERS = [
+  { label: "Todos", value: "ALL" },
+  { label: "Programados", value: "SCHEDULED" },
+  { label: "En juego", value: "IN_PROGRESS" },
+  { label: "Finalizados", value: "FINISHED" },
+] as const;
+
+type StatusFilter = (typeof STATUS_FILTERS)[number]["value"];
+
+function PredictionLine({ prediction }: { prediction: Prediction }) {
+  return (
+    <span className="text-sm text-muted-foreground">
+      Tu pronóstico{" "}
+      <strong className="font-extrabold text-foreground tabular-nums">
+        {prediction.homeScore}–{prediction.awayScore}
+      </strong>
+    </span>
+  );
+}
+
+/**
+ * What the participant can do with this match, from data already on screen:
+ * predict it, edit their prediction, or see that it is closed.
+ *
+ * Points per match are not shown: no endpoint returns a user's score for one
+ * match (only ranking totals), and recomputing the scoring rule here would
+ * duplicate score-service logic.
+ */
+function MatchPredictionArea({
+  match,
+  prediction,
+  canPredict,
+  isPlayer,
+}: {
+  match: Match;
+  prediction: Prediction | undefined;
+  canPredict: boolean;
+  isPlayer: boolean;
+}) {
+  const predictPath = `/matches/${match.id}/predict`;
+
+  if (!isPlayer) {
+    return match.status === "FINISHED" ? null : <PredictionLockBadge open={match.predictionsOpen} />;
+  }
+
+  if (match.predictionsOpen) {
+    if (!canPredict) {
+      return <span className="text-sm text-muted-foreground">Inscribite para pronosticar</span>;
+    }
+    return prediction ? (
+      <div className="flex items-center gap-3">
+        <PredictionLine prediction={prediction} />
+        <Button asChild size="sm" variant="outline">
+          <Link to={predictPath} aria-label={`Editar pronóstico de ${match.homeTeam.name} contra ${match.awayTeam.name}`}>
+            Editar
+          </Link>
+        </Button>
+      </div>
+    ) : (
+      <Button asChild size="sm">
+        <Link to={predictPath} aria-label={`Pronosticar ${match.homeTeam.name} contra ${match.awayTeam.name}`}>
+          Pronosticar
+        </Link>
+      </Button>
+    );
+  }
+
+  return (
+    <div className="flex items-center gap-3">
+      {prediction ? (
+        <PredictionLine prediction={prediction} />
+      ) : (
+        canPredict && <span className="text-sm text-muted-foreground">No pronosticaste</span>
+      )}
+      {match.status !== "FINISHED" && <PredictionLockBadge open={false} />}
+    </div>
+  );
+}
+
+function FixtureTab({
+  tournamentId,
+  isPlayer,
+  enrolled,
+}: {
+  tournamentId: string;
+  isPlayer: boolean;
+  enrolled: boolean;
+}) {
   const [matches, setMatches] = useState<Match[]>([]);
+  const [predictions, setPredictions] = useState<Map<string, Prediction>>(new Map());
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [statusFilter, setStatusFilter] = useState<string>("");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("ALL");
+
+  const canPredict = isPlayer && enrolled;
 
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
-    listMatches(tournamentId, statusFilter || undefined)
-      .then(setMatches)
+    // Predictions are a nice-to-have on this screen: if they fail, the fixture
+    // still renders and each row links to the prediction page.
+    const myPredictions = canPredict
+      ? getMyPredictions(tournamentId, 0, 200).catch(() => [] as Prediction[])
+      : Promise.resolve([] as Prediction[]);
+    Promise.all([listMatches(tournamentId), myPredictions])
+      .then(([nextMatches, nextPredictions]) => {
+        setMatches([...nextMatches].sort(byKickoff));
+        setPredictions(new Map(nextPredictions.map((p) => [p.matchId, p])));
+      })
       .catch((error) => setError(apiErrorMessage(error, "No se pudieron cargar los partidos.")))
       .finally(() => setLoading(false));
-  }, [tournamentId, statusFilter]);
+  }, [tournamentId, canPredict]);
 
   useEffect(() => {
     load();
   }, [load]);
 
   if (loading) return <LoadingState label="Cargando fixture…" />;
-  if (error) return <ErrorState title="Error" description={error} onRetry={load} />;
+  if (error) return <ErrorState title="No pudimos cargar el fixture" description={error} onRetry={load} />;
   if (matches.length === 0) {
     return (
       <EmptyState
-        title="Sin partidos"
-        description="Todavía no hay partidos programados para este torneo."
+        title="Todavía no hay partidos"
+        description="Cuando el administrador cargue el fixture, los partidos van a aparecer acá."
       />
     );
   }
 
+  const visible =
+    statusFilter === "ALL" ? matches : matches.filter((match) => match.status === statusFilter);
+  const pending = canPredict
+    ? matches.filter((match) => match.predictionsOpen && !predictions.has(match.id)).length
+    : 0;
+
   return (
     <div className="flex flex-col gap-4">
-      <div className="flex flex-wrap gap-2">
-        {[
-          { label: "Todos", value: "" },
-          { label: "Programados", value: "SCHEDULED" },
-          { label: "En juego", value: "IN_PROGRESS" },
-          { label: "Finalizados", value: "FINISHED" },
-        ].map((f) => (
-          <Button
-            key={f.value}
-            variant={statusFilter === f.value ? "default" : "secondary"}
-            size="sm"
-            onClick={() => setStatusFilter(f.value)}
-          >
-            {f.label}
-          </Button>
-        ))}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        {/* A filter, not a section: the muted segmented track sets it apart
+            from the section pills above. */}
+        <Tabs value={statusFilter} onValueChange={(value) => setStatusFilter(value as StatusFilter)}>
+          <TabsList aria-label="Filtrar partidos por estado" className="border border-border bg-card">
+            {STATUS_FILTERS.map((filter) => (
+              <TabsTrigger
+                key={filter.value}
+                value={filter.value}
+                className="px-3 text-[13px] data-[state=active]:bg-secondary data-[state=active]:text-secondary-foreground data-[state=active]:shadow-none"
+              >
+                {filter.label}
+              </TabsTrigger>
+            ))}
+          </TabsList>
+        </Tabs>
+        {pending > 0 && (
+          <p className="text-sm font-semibold text-primary">
+            {pending === 1 ? "Te falta pronosticar 1 partido" : `Te faltan pronosticar ${pending} partidos`}
+          </p>
+        )}
       </div>
 
-      <div className="flex flex-col gap-3">
-        {matches.map((match) => (
-          <Card key={match.id}>
-            <CardContent className="flex flex-col gap-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-3">
-                  <MatchStatusBadge status={match.status} />
-                  {match.predictionsOpen && <PredictionLockBadge open />}
-                </div>
-                <span className="text-xs text-muted-foreground">
-                  {formatDate(match.startTime)}
-                </span>
-              </div>
-
-              <div className="flex items-center justify-center gap-4 text-lg font-bold">
-                 <span className="text-right flex-1">{match.homeTeam.shortName || match.homeTeam.name}</span>
-                <span className="text-muted-foreground text-base">
-                  {match.homeScore !== null && match.awayScore !== null
-                    ? `${match.homeScore} – ${match.awayScore}`
-                    : "vs"}
-                </span>
-                 <span className="flex-1">{match.awayTeam.shortName || match.awayTeam.name}</span>
-              </div>
-
-              <Separator />
-
-              <div className="flex items-center justify-between text-xs text-muted-foreground">
-                <span>
-                  {match.homeTeam.name} vs {match.awayTeam.name}
-                </span>
-                {match.predictionsOpen && (
-                  <Button asChild size="xs" variant="success">
-                    <Link to={`/matches/${match.id}/predict`}>Pronosticá</Link>
-                  </Button>
-                )}
-              </div>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
+      {visible.length === 0 ? (
+        <EmptyState
+          title="No hay partidos con ese estado"
+          action={
+            <Button variant="secondary" onClick={() => setStatusFilter("ALL")}>
+              Ver todos
+            </Button>
+          }
+        />
+      ) : (
+        <ul className="flex flex-col gap-3">
+          {visible.map((match) => (
+            <li key={match.id}>
+              <Card className="gap-3 py-4">
+                <CardContent className="flex flex-col gap-3">
+                  <div className="flex items-center justify-between gap-2">
+                    <MatchStatusBadge status={match.status} />
+                    <span className="text-xs text-muted-foreground">{formatKickoff(match.startTime)}</span>
+                  </div>
+                  <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                    <MatchTeams
+                      className="md:max-w-md md:flex-1"
+                      homeTeam={match.homeTeam}
+                      awayTeam={match.awayTeam}
+                      center={<ScoreOrVs homeScore={match.homeScore} awayScore={match.awayScore} />}
+                    />
+                    <div className="flex justify-end">
+                      <MatchPredictionArea
+                        match={match}
+                        prediction={predictions.get(match.id)}
+                        canPredict={canPredict}
+                        isPlayer={isPlayer}
+                      />
+                    </div>
+                  </div>
+                </CardContent>
+              </Card>
+            </li>
+          ))}
+        </ul>
+      )}
     </div>
   );
 }
@@ -287,7 +368,7 @@ function FixtureTab({ tournamentId }: { tournamentId: string }) {
 
 export function TournamentDetailPage() {
   const { tournamentId } = useParams<{ tournamentId: string }>();
-  const { user } = useAuth();
+  const { user, hasRole } = useAuth();
 
   const [tournament, setTournament] = useState<Tournament | null>(null);
   const [loading, setLoading] = useState(true);
@@ -298,6 +379,7 @@ export function TournamentDetailPage() {
   const [joining, setJoining] = useState(false);
   const [joinError, setJoinError] = useState<string | null>(null);
   const [retry, setRetry] = useState(0);
+  const [tab, setTab] = useState<string | null>(null);
 
   useEffect(() => {
     if (!tournamentId) return;
@@ -309,6 +391,9 @@ export function TournamentDetailPage() {
     getTournament(tournamentId)
       .then(async (t) => {
         setTournament(t);
+        // Participants come here to predict: open on the fixture while the
+        // tournament is running, on the groups before it starts.
+        setTab((current) => current ?? (t.status === "ACTIVE" || t.status === "FINISHED" ? "fixture" : "groups"));
         if (user) {
           try {
             const enrolment = await getEnrolment(t.id, user.id);
@@ -327,8 +412,12 @@ export function TournamentDetailPage() {
       .finally(() => setLoading(false));
   }, [tournamentId, user, retry]);
 
-  // Set the page header based on tournament name
-  usePageHeader(tournament?.name ?? "Torneo");
+  const name = tournament?.name ?? "Torneo";
+  usePageHeader({
+    title: name,
+    subtitle: tournament?.description || undefined,
+    breadcrumbs: [{ label: "Torneos", to: "/tournaments" }, { label: name }],
+  });
 
   async function handleJoin() {
     if (!tournamentId) return;
@@ -337,103 +426,98 @@ export function TournamentDetailPage() {
     try {
       await joinTournament(tournamentId);
       setEnrolled(true);
+      setTab("fixture");
+      toast.success("Te inscribiste", {
+        description: "Ya podés pronosticar los partidos abiertos.",
+      });
     } catch (e) {
-      setJoinError(apiErrorMessage(e, "No se pudo inscribir en el torneo."));
+      setJoinError(apiErrorMessage(e, "No se pudo completar la inscripción. Volvé a intentarlo."));
     } finally {
       setJoining(false);
     }
   }
 
   if (loading) return <LoadingState label="Cargando torneo…" />;
-  if (error) return <ErrorState title="Error" description={error} onRetry={() => setRetry((r) => r + 1)} />;
+  if (error) return <ErrorState title="No pudimos cargar el torneo" description={error} onRetry={() => setRetry((r) => r + 1)} />;
   if (!tournament || !tournamentId) {
-    return <ErrorState title="No encontrado" description="El torneo no existe." />;
+    return <ErrorState title="No encontramos este torneo" description="Volvé a la lista de torneos y elegí otro." />;
   }
 
+  const isPlayer = hasRole("PLAYER");
   const canJoin =
     tournament.status === "ACTIVE" &&
-    user &&
-    user.roles.includes("PLAYER") &&
+    isPlayer &&
     !enrolled &&
     !enrolmentLoading &&
     !enrolmentError;
 
   return (
     <div className="flex flex-col gap-6">
-      {/* Tournament info */}
-      <Card>
-        <CardContent className="flex flex-col gap-3">
-          <div className="flex items-start justify-between gap-2">
-            <div>
-              <h2 className="text-xl font-bold">{tournament.name}</h2>
-              {tournament.description && (
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {tournament.description}
-                </p>
-              )}
-            </div>
-            <div className="flex shrink-0 items-center gap-2">
-              {(tournament.status === "ACTIVE" || tournament.status === "FINISHED") && (
-                <Button asChild size="sm" variant="secondary">
-                  <Link to={`/rankings/tournament/${tournament.id}`}>Ver ranking</Link>
-                </Button>
-              )}
+      <Card className="px-5">
+        <div className="flex flex-wrap items-center justify-between gap-4">
+          <div className="flex flex-col gap-2">
+            <div className="flex flex-wrap items-center gap-3 text-sm text-muted-foreground">
               <TournamentStatusBadge status={tournament.status} />
+              <span className="flex items-center gap-1.5">
+                <Calendar className="size-4" aria-hidden="true" />
+                {formatDateOnly(tournament.startDate)} – {formatDateOnly(tournament.endDate)}
+              </span>
             </div>
+            {enrolled && (
+              <p className="flex items-center gap-1.5 text-sm font-semibold text-success">
+                <CheckCircle2 className="size-4" aria-hidden="true" />
+                Ya estás inscripto en este torneo.
+              </p>
+            )}
+            {enrolmentError && (
+              <p className="text-sm font-bold text-destructive">{enrolmentError}</p>
+            )}
+            {joinError && <p role="alert" className="text-sm font-bold text-destructive">{joinError}</p>}
           </div>
 
-          <div className="flex items-center gap-4 text-sm text-muted-foreground">
-            <span className="flex items-center gap-1.5">
-              <Calendar className="size-4" aria-hidden="true" />
-              {formatDateOnly(tournament.startDate)} – {formatDateOnly(tournament.endDate)}
-            </span>
-          </div>
-
-          {canJoin && (
-            <div className="flex flex-col gap-2">
-              <Button
-                variant="success"
-                onClick={handleJoin}
-                disabled={joining}
-              >
+          <div className="flex flex-wrap items-center gap-2">
+            {hasRole("ADMIN") && (
+              <Button asChild variant="outline">
+                <Link to={`/admin/tournaments/${tournament.id}`}>
+                  <Settings aria-hidden="true" />
+                  Administrar
+                </Link>
+              </Button>
+            )}
+            {(tournament.status === "ACTIVE" || tournament.status === "FINISHED") && (
+              <Button asChild variant="secondary">
+                <Link to={`/rankings/tournament/${tournament.id}`}>
+                  <BarChart3 aria-hidden="true" />
+                  Ver ranking
+                </Link>
+              </Button>
+            )}
+            {canJoin && (
+              <Button variant="success" onClick={handleJoin} disabled={joining}>
                 {joining ? "Inscribiéndote…" : "Inscribirme en este torneo"}
               </Button>
-              {joinError && (
-                <p className="text-sm font-bold text-destructive">{joinError}</p>
-              )}
-            </div>
-          )}
-
-          {enrolmentError && (
-            <p className="text-sm font-bold text-destructive">{enrolmentError}</p>
-          )}
-
-          {enrolled && (
-            <p className="text-sm font-medium text-success">
-              Ya estás inscripto en este torneo.
-            </p>
-          )}
-        </CardContent>
+            )}
+          </div>
+        </div>
       </Card>
 
-      {/* Tabs */}
-      <Tabs defaultValue="groups">
-        <TabsList variant="pill">
+      <Tabs value={tab ?? "groups"} onValueChange={setTab}>
+        <TabsList variant="pill" aria-label="Secciones del torneo">
+          <TabsTrigger value="fixture">Fixture</TabsTrigger>
           <TabsTrigger value="groups">Grupos</TabsTrigger>
           <TabsTrigger value="phases">Fases</TabsTrigger>
-          <TabsTrigger value="fixture">Fixture</TabsTrigger>
         </TabsList>
 
-        <TabsContent value="groups" className="mt-4">
-          {tournamentId && <GroupsTab tournamentId={tournamentId} />}
+        <TabsContent value="fixture" className="mt-3">
+          <FixtureTab tournamentId={tournamentId} isPlayer={isPlayer} enrolled={enrolled} />
         </TabsContent>
 
-        <TabsContent value="phases" className="mt-4">
-          {tournamentId && <PhasesTab tournamentId={tournamentId} />}
+        <TabsContent value="groups" className="mt-3">
+          <GroupsTab tournamentId={tournamentId} />
         </TabsContent>
 
-        <TabsContent value="fixture" className="mt-4">
-          {tournamentId && <FixtureTab tournamentId={tournamentId} />}
+        <TabsContent value="phases" className="mt-3">
+          <PhasesTab tournamentId={tournamentId} />
         </TabsContent>
       </Tabs>
     </div>

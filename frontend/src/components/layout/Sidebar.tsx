@@ -1,4 +1,4 @@
-import { NavLink } from "react-router-dom";
+import { Link, useLocation } from "react-router-dom";
 import {
   ClipboardCheck,
   LayoutDashboard,
@@ -17,43 +17,68 @@ interface NavItem {
   icon: LucideIcon;
   /** Exact match only — otherwise "/" would light up on every route. */
   end?: boolean;
+  /**
+   * Extra path prefixes that belong to this section, so nested screens keep
+   * their section lit: a match's prediction page lives under Torneos even
+   * though its URL starts with /matches.
+   */
+  matchPrefixes?: string[];
+}
+
+function matchesPrefix(pathname: string, prefix: string): boolean {
+  return pathname === prefix || pathname.startsWith(`${prefix}/`);
+}
+
+function isItemActive(pathname: string, { to, end, matchPrefixes = [] }: NavItem): boolean {
+  const ownMatch = end ? pathname === to : matchesPrefix(pathname, to);
+  return ownMatch || matchPrefixes.some((prefix) => matchesPrefix(pathname, prefix));
 }
 
 const playerNav: NavItem[] = [
   { to: "/", label: "Panel principal", icon: LayoutDashboard, end: true },
-  { to: "/tournaments", label: "Torneos", icon: Trophy },
+  { to: "/tournaments", label: "Torneos", icon: Trophy, matchPrefixes: ["/matches"] },
   { to: "/predictions", label: "Mis pronósticos", icon: Target },
-  { to: "/rankings/global", label: "Rankings", icon: BarChart3 },
+  { to: "/rankings/global", label: "Rankings", icon: BarChart3, matchPrefixes: ["/rankings"] },
 ];
 
 const adminNav: NavItem[] = [
-  { to: "/admin", label: "Panel admin", icon: Settings, end: true },
+  {
+    to: "/admin",
+    label: "Panel admin",
+    icon: Settings,
+    end: true,
+    matchPrefixes: ["/admin/tournaments"],
+  },
   { to: "/admin/results", label: "Cargar resultados", icon: ClipboardCheck },
 ];
 
 function NavGroup({ title, items }: { title: string; items: NavItem[] }) {
+  const { pathname } = useLocation();
+
   return (
     <div className="mb-6">
       <p className="mb-2.5 text-[11px] uppercase tracking-[0.12em] text-sidebar-muted">
         {title}
       </p>
-      {items.map(({ to, label, icon: Icon, end }) => (
-        <NavLink
-          key={to}
-          to={to}
-          end={end}
-          className={({ isActive }) =>
-            cn(
+      {items.map((item) => {
+        const { to, label, icon: Icon } = item;
+        const isActive = isItemActive(pathname, item);
+        return (
+          <Link
+            key={to}
+            to={to}
+            aria-current={isActive ? "page" : undefined}
+            className={cn(
               "mb-1.5 flex items-center gap-2.5 rounded-md px-3.5 py-3 text-sm text-sidebar-foreground transition-colors duration-200",
               "hover:bg-sidebar-accent",
-              isActive && "bg-sidebar-accent",
-            )
-          }
-        >
-          <Icon className="size-4" aria-hidden="true" />
-          {label}
-        </NavLink>
-      ))}
+              isActive && "bg-sidebar-accent font-semibold",
+            )}
+          >
+            <Icon className="size-4" aria-hidden="true" />
+            {label}
+          </Link>
+        );
+      })}
     </div>
   );
 }
