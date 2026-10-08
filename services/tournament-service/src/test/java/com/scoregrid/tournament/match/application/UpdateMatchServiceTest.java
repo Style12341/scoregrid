@@ -9,6 +9,8 @@ import com.scoregrid.tournament.match.domain.model.TeamRef;
 import com.scoregrid.tournament.match.domain.port.in.UpdateMatchUseCase;
 import com.scoregrid.tournament.match.domain.port.out.MatchEventPublisher;
 import com.scoregrid.tournament.match.domain.port.out.MatchRepository;
+import com.scoregrid.tournament.phase.domain.model.Phase;
+import com.scoregrid.tournament.phase.domain.model.PhaseType;
 import com.scoregrid.tournament.phase.domain.port.out.PhaseRepository;
 import com.scoregrid.tournament.shared.error.DomainException;
 import com.scoregrid.tournament.shared.error.ErrorKind;
@@ -204,7 +206,7 @@ class UpdateMatchServiceTest {
     }
 
     @Test
-    void shouldNotPublishEventWhenOnlyTeamsChange() {
+    void shouldPublishEventWhenOnlyTeamsChange() {
         var match = matchWithStatus(MatchStatus.SCHEDULED);
         when(matchRepository.findById(99L)).thenReturn(Optional.of(match));
         when(tournamentRepository.findById(1L)).thenReturn(Optional.of(activeTournament));
@@ -223,8 +225,58 @@ class UpdateMatchServiceTest {
         when(teamRepository.findById(10L)).thenReturn(Optional.of(newAway));
         when(matchRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
 
-        // Same status, same startTime, same group — only teams changed
+        // Same status, same startTime, same group — only teams changed.
+        // match.updated carries homeTeamId/awayTeamId, so consumers must hear about it.
         var cmd = new UpdateMatchUseCase.Command(99L, 3L, null, 9L, 10L, FUTURE, MatchStatus.SCHEDULED);
+        useCase.execute(cmd);
+
+        verify(eventPublisher).updated(any(), any());
+    }
+
+    @Test
+    void shouldPublishEventWhenOnlyGroupChanges() {
+        when(matchRepository.findById(99L)).thenReturn(Optional.of(matchWithStatus(MatchStatus.SCHEDULED)));
+        when(tournamentRepository.findById(1L)).thenReturn(Optional.of(activeTournament));
+        when(groupRepository.findById(4L)).thenReturn(Optional.of(Group.reconstitute(4L, 1L, "Grupo B", 1)));
+        when(tournamentTeamRepository.existsByTournamentIdAndTeamId(1L, 7L)).thenReturn(true);
+        when(tournamentTeamRepository.existsByTournamentIdAndTeamId(1L, 8L)).thenReturn(true);
+        when(groupTeamRepository.existsByGroupIdAndTeamId(4L, 7L)).thenReturn(true);
+        when(groupTeamRepository.existsByGroupIdAndTeamId(4L, 8L)).thenReturn(true);
+        when(teamRepository.findById(7L)).thenReturn(Optional.of(homeTeam));
+        when(teamRepository.findById(8L)).thenReturn(Optional.of(awayTeam));
+        when(matchRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        var cmd = new UpdateMatchUseCase.Command(99L, 4L, null, 7L, 8L, FUTURE, MatchStatus.SCHEDULED);
+        useCase.execute(cmd);
+
+        verify(eventPublisher).updated(any(), any());
+    }
+
+    @Test
+    void shouldPublishEventWhenOnlyPhaseChanges() {
+        var knockoutMatch = Match.reconstitute(99L, 1L, null, 5L,
+                homeRef, awayRef, FUTURE, MatchStatus.SCHEDULED, null, null);
+        when(matchRepository.findById(99L)).thenReturn(Optional.of(knockoutMatch));
+        when(tournamentRepository.findById(1L)).thenReturn(Optional.of(activeTournament));
+        when(phaseRepository.findById(6L))
+                .thenReturn(Optional.of(Phase.reconstitute(6L, 1L, "Final", PhaseType.FINAL, 2)));
+        when(tournamentTeamRepository.existsByTournamentIdAndTeamId(1L, 7L)).thenReturn(true);
+        when(tournamentTeamRepository.existsByTournamentIdAndTeamId(1L, 8L)).thenReturn(true);
+        when(teamRepository.findById(7L)).thenReturn(Optional.of(homeTeam));
+        when(teamRepository.findById(8L)).thenReturn(Optional.of(awayTeam));
+        when(matchRepository.save(any())).thenAnswer(inv -> inv.getArgument(0));
+
+        var cmd = new UpdateMatchUseCase.Command(99L, null, 6L, 7L, 8L, FUTURE, MatchStatus.SCHEDULED);
+        useCase.execute(cmd);
+
+        verify(eventPublisher).updated(any(), any());
+    }
+
+    @Test
+    void shouldNotPublishEventWhenNothingChanges() {
+        setupSuccessfulUpdateMocks(matchWithStatus(MatchStatus.SCHEDULED));
+
+        var cmd = new UpdateMatchUseCase.Command(99L, 3L, null, 7L, 8L, FUTURE, MatchStatus.SCHEDULED);
         useCase.execute(cmd);
 
         verify(eventPublisher, never()).updated(any(), any());

@@ -67,6 +67,11 @@ jobs:
         working-directory: frontend
         run: npm run lint
 
+      # Pure tournament logic: standings, round-robin fixture, knockout pairings.
+      - name: Test
+        working-directory: frontend
+        run: npm test
+
       # tsc -b then vite build: a type error fails the build here rather than
       # in someone else's branch.
       - name: Build

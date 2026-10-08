@@ -46,6 +46,11 @@ export function phaseLabel(phase: { name: string | null; type: PhaseType }): str
   return phase.name || phaseTypeLabel(phase.type);
 }
 
+/** "1 partido", "3 partidos": the count with its noun in the matching number. */
+export function pluralize(count: number, singular: string, plural = `${singular}s`): string {
+  return `${count} ${count === 1 ? singular : plural}`;
+}
+
 /** The short code shown next to a full team name, when it differs. */
 export function teamCode(team: Pick<TeamRef, "name" | "shortName">): string | null {
   return team.shortName && team.shortName !== team.name ? team.shortName : null;
@@ -53,6 +58,16 @@ export function teamCode(team: Pick<TeamRef, "name" | "shortName">): string | nu
 
 export function hasResult(match: Match): match is Match & { homeScore: number; awayScore: number } {
   return match.homeScore !== null && match.awayScore !== null;
+}
+
+/** Can still be played or scored: neither finished nor cancelled. */
+export function isPendingMatch(match: Match): boolean {
+  return match.status === "SCHEDULED" || match.status === "IN_PROGRESS" || match.status === "POSTPONED";
+}
+
+/** The matches played in one group. */
+export function matchesInGroup(matches: Match[], groupId: string): Match[] {
+  return matches.filter((match) => match.groupId === groupId);
 }
 
 /** Earliest kickoff first. */

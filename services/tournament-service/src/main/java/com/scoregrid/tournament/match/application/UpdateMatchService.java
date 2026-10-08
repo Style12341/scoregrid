@@ -73,6 +73,7 @@ public class UpdateMatchService implements UpdateMatchUseCase {
 
         MatchStatus previousStatus = match.getStatus();
         Instant previousStartTime = match.getStartTime();
+        var publishedBefore = PublishedFields.of(match);
 
         validateCommand(command);
         if (previousStatus.isTerminal()) {
@@ -156,14 +157,24 @@ public class UpdateMatchService implements UpdateMatchUseCase {
         log.info("Match updated: matchId={} status={} startTime={}",
                 saved.getId(), saved.getStatus(), saved.getStartTime());
 
-        // Publish event only if startTime or status changed
-        boolean changed = !saved.getStatus().equals(previousStatus)
-                || !saved.getStartTime().equals(previousStartTime);
-        if (changed) {
+        if (!PublishedFields.of(saved).equals(publishedBefore)) {
             eventPublisher.updated(saved, tournament.getStatus());
         }
 
         return saved;
+    }
+
+    /**
+     * The match fields that match.updated carries (docs/contracts.md). The event
+     * is published when any of them changes, so consumers never keep stale teams.
+     */
+    private record PublishedFields(Long groupId, Long phaseId, Long homeTeamId, Long awayTeamId,
+                                   Instant startTime, MatchStatus status) {
+        static PublishedFields of(Match match) {
+            return new PublishedFields(match.getGroupId(), match.getPhaseId(),
+                    match.getHomeTeam().id(), match.getAwayTeam().id(),
+                    match.getStartTime(), match.getStatus());
+        }
     }
 
     private void applyStatusTransition(Match match, MatchStatus targetStatus,

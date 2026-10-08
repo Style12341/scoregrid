@@ -1,8 +1,9 @@
-import { BrowserRouter, Route, Routes } from "react-router-dom";
+import { BrowserRouter, Link, Route, Routes } from "react-router-dom";
 import { AuthProvider } from "./auth/AuthContext";
 import { RequireAuth } from "./auth/RequireAuth";
 import { AppLayout } from "./components/layout/AppLayout";
 import { EmptyState } from "./components/common/states";
+import { Button } from "./components/ui/button";
 import { Toaster } from "./components/ui/sonner";
 import { LoginPage } from "./features/auth/LoginPage";
 import { RegisterPage } from "./features/auth/RegisterPage";
@@ -75,6 +76,11 @@ export default function App() {
                 <EmptyState
                   title="Página no encontrada"
                   description="La dirección a la que intentaste entrar no existe."
+                  action={
+                    <Button asChild>
+                      <Link to="/">Volver al inicio</Link>
+                    </Button>
+                  }
                 />
               </div>
             }

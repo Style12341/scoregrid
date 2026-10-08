@@ -1,8 +1,11 @@
 package com.scoregrid.tournament.tournament.application;
 
+import com.scoregrid.tournament.match.domain.model.Match;
 import com.scoregrid.tournament.match.domain.port.out.MatchEventPublisher;
 import com.scoregrid.tournament.match.domain.port.out.MatchRepository;
+import com.scoregrid.tournament.tournament.domain.model.PendingMatchesException;
 import com.scoregrid.tournament.tournament.domain.model.Tournament;
+import com.scoregrid.tournament.tournament.domain.model.TournamentStatus;
 import com.scoregrid.tournament.tournament.domain.port.in.TransitionTournamentStatusUseCase;
 import com.scoregrid.tournament.tournament.domain.port.out.TournamentRepository;
 import com.scoregrid.tournament.shared.error.DomainException;
@@ -36,8 +39,15 @@ public class TransitionTournamentStatusService implements TransitionTournamentSt
                 .orElseThrow(() -> new DomainException(ErrorKind.NOT_FOUND, "NOT_FOUND",
                         "Tournament not found: " + command.tournamentId()));
         var previousStatus = tournament.getStatus();
+        var matches = matchRepository.findByTournamentId(command.tournamentId());
         try {
-            tournament.transitionTo(command.status());
+            if (command.status() == TournamentStatus.FINISHED) {
+                tournament.finish(matches.stream().filter(Match::isPending).count());
+            } else {
+                tournament.transitionTo(command.status());
+            }
+        } catch (PendingMatchesException e) {
+            throw new DomainException(ErrorKind.CONFLICT, "INVALID_MATCH_STATE", e.getMessage());
         } catch (IllegalArgumentException e) {
             throw new DomainException(ErrorKind.VALIDATION, "VALIDATION_FAILED", e.getMessage());
         } catch (IllegalStateException e) {
@@ -46,8 +56,7 @@ public class TransitionTournamentStatusService implements TransitionTournamentSt
         var saved = tournamentRepository.save(tournament);
         log.info("Tournament status changed: tournamentId={} fromStatus={} toStatus={}",
                 saved.getId(), previousStatus, saved.getStatus());
-        matchRepository.findByTournamentId(saved.getId())
-                .forEach(match -> matchEventPublisher.updated(match, saved.getStatus()));
+        matches.forEach(match -> matchEventPublisher.updated(match, saved.getStatus()));
         return saved;
     }
 }

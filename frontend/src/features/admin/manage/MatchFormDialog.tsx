@@ -26,6 +26,7 @@ import { createMatch, getGroupTeams, updateMatch } from "@/features/tournaments/
 import type { Group, Match, Phase, Team } from "@/features/tournaments/types/tournament";
 import { apiErrorMessage } from "@/features/tournaments/errors";
 import { phaseLabel, teamCode } from "@/features/tournaments/format";
+import { toDateTimeLocal } from "./kickoff";
 
 /** One select for "where is this match played": a group or a phase, never both. */
 type Location = `group:${string}` | `phase:${string}` | "";
@@ -34,12 +35,6 @@ function toLocation(match?: Match): Location {
   if (match?.groupId) return `group:${match.groupId}`;
   if (match?.phaseId) return `phase:${match.phaseId}`;
   return "";
-}
-
-function toDateTimeLocal(iso: string): string {
-  const date = new Date(iso);
-  const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000);
-  return local.toISOString().slice(0, 16);
 }
 
 function teamOption(team: Team): string {
@@ -80,7 +75,7 @@ export function MatchFormDialog({
   const [location, setLocation] = useState<Location>(toLocation(match));
   const [homeTeamId, setHomeTeamId] = useState(match?.homeTeam.id ?? "");
   const [awayTeamId, setAwayTeamId] = useState(match?.awayTeam.id ?? "");
-  const [startTime, setStartTime] = useState(match ? toDateTimeLocal(match.startTime) : "");
+  const [startTime, setStartTime] = useState(match ? toDateTimeLocal(new Date(match.startTime)) : "");
   const [status, setStatus] = useState<MatchStatus>(match?.status ?? "SCHEDULED");
   const [groupTeams, setGroupTeams] = useState<Team[] | null>(null);
   const [submitting, setSubmitting] = useState(false);
@@ -92,7 +87,7 @@ export function MatchFormDialog({
       setLocation(toLocation(match));
       setHomeTeamId(match?.homeTeam.id ?? "");
       setAwayTeamId(match?.awayTeam.id ?? "");
-      setStartTime(match ? toDateTimeLocal(match.startTime) : "");
+      setStartTime(match ? toDateTimeLocal(new Date(match.startTime)) : "");
       setStatus(match?.status ?? "SCHEDULED");
       setError(null);
     }
@@ -121,6 +116,12 @@ export function MatchFormDialog({
   }, [open, groupId]);
 
   const teamOptions = groupTeams ?? tournamentTeams;
+  // A group-stage match is created from its group, where the team-in-group rule
+  // applies; a GROUP_STAGE phase would skip that check. Keep only the one this
+  // match already uses, so editing it still shows its location.
+  const phaseOptions = phases.filter(
+    (phase) => phase.type !== "GROUP_STAGE" || phase.id === match?.phaseId,
+  );
 
   async function save() {
     const [kind, id] = location.split(":") as ["group" | "phase", string];
@@ -213,10 +214,10 @@ export function MatchFormDialog({
                         ))}
                       </SelectGroup>
                     )}
-                    {phases.length > 0 && (
+                    {phaseOptions.length > 0 && (
                       <SelectGroup>
                         <SelectLabel>Fases</SelectLabel>
-                        {phases.map((phase) => (
+                        {phaseOptions.map((phase) => (
                           <SelectItem key={phase.id} value={`phase:${phase.id}`}>
                             {phaseLabel(phase)}
                           </SelectItem>

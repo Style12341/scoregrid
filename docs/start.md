@@ -458,7 +458,7 @@ The script is idempotent and needs `SEED_USER_PASSWORD` (and the admin credentia
 
 ### What remains deliberately out of scope
 
-Automatic bracket generation, group standings tables, notifications, top-scorer predictions, private tournaments and per-tournament scoring rules remain out of scope. See the [PRD](PRD.md#non-goals).
+Tournament formats in the backend (standings, fixtures and brackets are only admin UI helpers), notifications, top-scorer predictions, private tournaments and per-tournament scoring rules remain out of scope. See the [PRD](PRD.md#non-goals).
 
 The one Phase 0 step nobody can do for you: **read [`contracts.md`](contracts.md) together and freeze it** before splitting up.
 

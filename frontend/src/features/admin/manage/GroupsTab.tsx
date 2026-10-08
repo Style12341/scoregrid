@@ -19,9 +19,12 @@ import {
   createGroup,
   getGroupTeams,
 } from "@/features/tournaments/api/tournaments";
-import type { Group, Team, Tournament } from "@/features/tournaments/types/tournament";
+import type { Group, Match, Team, Tournament } from "@/features/tournaments/types/tournament";
 import { apiErrorMessage } from "@/features/tournaments/errors";
-import { SelectableTeamChip, TeamChip } from "./TeamChip";
+import { matchesInGroup } from "@/features/tournaments/format";
+import { GroupStandings } from "@/features/tournaments/components/GroupStandings";
+import { GenerateFixtureDialog } from "./GenerateFixtureDialog";
+import { SelectableTeamChip } from "./TeamChip";
 import { isConfigurable, toggleId } from "./status";
 
 function CreateGroupDialog({
@@ -180,27 +183,29 @@ function AssignTeamsDialog({
 export function GroupsTab({
   tournament,
   groups,
+  matches,
   tournamentTeams,
   onChanged,
 }: {
   tournament: Tournament;
   groups: Group[];
+  matches: Match[];
   tournamentTeams: Team[];
-  onChanged: () => void;
+  /** Reloads the page data; resolves to whether it succeeded. */
+  onChanged: () => Promise<boolean>;
 }) {
-  const [teamsByGroup, setTeamsByGroup] = useState<Record<string, Team[]>>({});
-  const [loading, setLoading] = useState(true);
+  // Null until the first load. Later reloads (after every change on the page)
+  // keep the groups on screen, so an open dialog is not unmounted mid-task.
+  const [teamsByGroup, setTeamsByGroup] = useState<Record<string, Team[]> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadGroupTeams = useCallback(() => {
-    setLoading(true);
     setError(null);
     Promise.all(groups.map((group) => getGroupTeams(group.id).then((teams) => [group.id, teams] as const)))
       .then((entries) => setTeamsByGroup(Object.fromEntries(entries)))
       .catch((requestError) =>
         setError(apiErrorMessage(requestError, "No pudimos cargar los equipos de cada grupo.")),
-      )
-      .finally(() => setLoading(false));
+      );
   }, [groups]);
 
   useEffect(() => {
@@ -209,14 +214,16 @@ export function GroupsTab({
 
   const canEdit = isConfigurable(tournament.status);
   // A team belongs to at most one group (ALREADY_IN_GROUP), so offer only free ones.
-  const groupedIds = new Set(Object.values(teamsByGroup).flat().map((team) => team.id));
+  const groupedIds = new Set(Object.values(teamsByGroup ?? {}).flat().map((team) => team.id));
   const freeTeams = tournamentTeams.filter((team) => !groupedIds.has(team.id));
 
   return (
     <Card>
       <CardHeader>
         <CardTitle>Grupos</CardTitle>
-        <CardDescription>Cada equipo puede estar en un solo grupo.</CardDescription>
+        <CardDescription>
+          Cada equipo puede estar en un solo grupo. La tabla suma los partidos finalizados.
+        </CardDescription>
         {canEdit && (
           <CardAction>
             <CreateGroupDialog
@@ -233,41 +240,63 @@ export function GroupsTab({
             title="Todavía no hay grupos"
             description="Creá grupos para organizar los equipos del torneo."
           />
-        ) : loading ? (
-          <LoadingState label="Cargando grupos…" />
-        ) : error ? (
-          <ErrorState title="No pudimos cargar los grupos" description={error} onRetry={loadGroupTeams} />
+        ) : teamsByGroup === null ? (
+          error ? (
+            <ErrorState title="No pudimos cargar los grupos" description={error} onRetry={loadGroupTeams} />
+          ) : (
+            <LoadingState label="Cargando grupos…" />
+          )
         ) : (
-          <div className="grid gap-3 md:grid-cols-2">
+          <div className="grid gap-3 xl:grid-cols-2">
+            {error && (
+              <p role="alert" className="text-sm font-bold text-destructive xl:col-span-2">
+                {error} Lo que ves puede estar desactualizado.
+              </p>
+            )}
             {groups.map((group) => {
               const teams = teamsByGroup[group.id] ?? [];
+              const groupMatches = matchesInGroup(matches, group.id);
               return (
                 <div key={group.id} className="rounded-lg border border-border bg-muted p-4">
-                  <div className="mb-3 flex items-center justify-between gap-2">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                     <h4 className="text-base font-bold">
                       {group.name}
                       <span className="ml-2 text-sm font-semibold text-muted-foreground">
                         {teams.length} {teams.length === 1 ? "equipo" : "equipos"}
                       </span>
                     </h4>
-                    {canEdit && freeTeams.length > 0 && (
-                      <AssignTeamsDialog
-                        group={group}
-                        availableTeams={freeTeams}
-                        onSaved={() => {
-                          loadGroupTeams();
-                          onChanged();
-                        }}
-                      />
-                    )}
+                    <div className="flex flex-wrap gap-1">
+                      {canEdit && teams.length >= 2 && (
+                        <GenerateFixtureDialog
+                          tournamentId={tournament.id}
+                          tournamentStartDate={tournament.startDate}
+                          group={group}
+                          teams={teams}
+                          groupMatches={groupMatches}
+                          onCreated={onChanged}
+                        />
+                      )}
+                      {canEdit && freeTeams.length > 0 && (
+                        <AssignTeamsDialog
+                          group={group}
+                          availableTeams={freeTeams}
+                          onSaved={() => {
+                            loadGroupTeams();
+                            onChanged();
+                          }}
+                        />
+                      )}
+                    </div>
                   </div>
                   {teams.length === 0 ? (
                     <p className="text-sm text-muted-foreground">Sin equipos asignados.</p>
                   ) : (
-                    <div className="flex flex-wrap gap-2">
-                      {teams.map((team) => (
-                        <TeamChip key={team.id} team={team} />
-                      ))}
+                    <div className="rounded-md border border-border bg-card">
+                      <GroupStandings
+                        groupName={group.name}
+                        teams={teams}
+                        matches={groupMatches}
+                      />
                     </div>
                   )}
                 </div>

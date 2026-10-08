@@ -27,7 +27,8 @@ import type {
   Team,
 } from "../types/tournament";
 import { apiErrorMessage } from "../errors";
-import { byKickoff, formatDateOnly, formatKickoff, phaseLabel, phaseTypeLabel, teamCode } from "../format";
+import { byKickoff, formatDateOnly, formatKickoff, matchesInGroup, phaseLabel, phaseTypeLabel } from "../format";
+import { GroupStandings } from "../components/GroupStandings";
 import { MatchTeams, ScoreOrVs } from "../components/MatchTeams";
 
 // ── Groups Tab ────────────────────────────────────────────────────────────
@@ -35,25 +36,21 @@ import { MatchTeams, ScoreOrVs } from "../components/MatchTeams";
 function GroupsTab({ tournamentId }: { tournamentId: string }) {
   const [groups, setGroups] = useState<Group[]>([]);
   const [teamsByGroup, setTeamsByGroup] = useState<Record<string, Team[]>>({});
+  const [matches, setMatches] = useState<Match[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(() => {
     setLoading(true);
     setError(null);
-    listGroups(tournamentId)
-      .then(async (g) => {
-        setGroups(g);
-        const teamMap: Record<string, Team[]> = {};
-        await Promise.all(
-          g.map((group) =>
-            getGroupTeams(group.id)
-              .then((teams) => {
-                teamMap[group.id] = teams;
-              }),
-          ),
+    Promise.all([listGroups(tournamentId), listMatches(tournamentId)])
+      .then(async ([nextGroups, nextMatches]) => {
+        const entries = await Promise.all(
+          nextGroups.map((group) => getGroupTeams(group.id).then((teams) => [group.id, teams] as const)),
         );
-        setTeamsByGroup(teamMap);
+        setGroups(nextGroups);
+        setMatches(nextMatches);
+        setTeamsByGroup(Object.fromEntries(entries));
       })
       .catch((error) => setError(apiErrorMessage(error, "No se pudieron cargar los grupos.")))
       .finally(() => setLoading(false));
@@ -75,7 +72,7 @@ function GroupsTab({ tournamentId }: { tournamentId: string }) {
   }
 
   return (
-    <div className="grid gap-4 md:grid-cols-2">
+    <div className="grid gap-4 xl:grid-cols-2">
       {groups.map((group) => {
         const teams = teamsByGroup[group.id] ?? [];
         return (
@@ -87,20 +84,11 @@ function GroupsTab({ tournamentId }: { tournamentId: string }) {
                   Sin equipos asignados.
                 </p>
               ) : (
-                <ul className="flex flex-wrap gap-2">
-                  {teams.map((team) => {
-                    const code = teamCode(team);
-                    return (
-                      <li
-                        key={team.id}
-                        className="inline-flex items-center gap-1.5 rounded-full border border-border bg-muted px-3 py-1 text-sm font-medium"
-                      >
-                        {team.name}
-                        {code && <span className="text-xs font-semibold text-muted-foreground">{code}</span>}
-                      </li>
-                    );
-                  })}
-                </ul>
+                <GroupStandings
+                  groupName={group.name}
+                  teams={teams}
+                  matches={matchesInGroup(matches, group.id)}
+                />
               )}
             </CardContent>
           </Card>

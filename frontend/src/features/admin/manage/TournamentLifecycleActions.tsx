@@ -3,8 +3,10 @@ import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
 import { ConfirmDialog } from "@/components/common/ConfirmDialog";
 import { deleteTournament, updateTournamentStatus } from "@/features/tournaments/api/tournaments";
-import type { Tournament, TournamentStatus } from "@/features/tournaments/types/tournament";
+import type { Match, Tournament, TournamentStatus } from "@/features/tournaments/types/tournament";
 import { apiErrorMessage } from "@/features/tournaments/errors";
+import { isPendingMatch } from "@/features/tournaments/format";
+import { toApiError } from "@/lib/api";
 
 /**
  * The status transitions a tournament allows, each behind a confirmation that
@@ -14,13 +16,17 @@ import { apiErrorMessage } from "@/features/tournaments/errors";
  */
 export function TournamentLifecycleActions({
   tournament,
+  matches,
   onChanged,
 }: {
   tournament: Tournament;
+  matches: Match[];
   onChanged: () => void;
 }) {
   const navigate = useNavigate();
   const { status, name } = tournament;
+  // A tournament cannot finish while any match is pending (docs/contracts.md).
+  const pending = matches.filter(isPendingMatch).length;
 
   async function transition(next: TournamentStatus, done: string, failed: string) {
     try {
@@ -28,9 +34,12 @@ export function TournamentLifecycleActions({
       toast.success(done, { description: name });
       onChanged();
     } catch (error) {
-      toast.error(failed, {
-        description: apiErrorMessage(error, "Volvé a intentarlo en unos segundos."),
-      });
+      // INVALID_MATCH_STATE's generic copy talks about one match; when finishing it means pending matches.
+      const description =
+        next === "FINISHED" && toApiError(error)?.error === "INVALID_MATCH_STATE"
+          ? "Todavía hay partidos sin terminar. Cargá sus resultados o cancelalos antes de finalizar."
+          : apiErrorMessage(error, "Volvé a intentarlo en unos segundos.");
+      toast.error(failed, { description });
       throw error;
     }
   }
@@ -72,6 +81,14 @@ export function TournamentLifecycleActions({
           title={`¿Finalizar ${name}?`}
           description={
             <>
+              {pending > 0 && (
+                <p className="rounded-md bg-destructive/10 px-3.5 py-3 font-bold text-destructive">
+                  {pending === 1
+                    ? "Queda 1 partido sin terminar (programado, en juego o pospuesto)."
+                    : `Quedan ${pending} partidos sin terminar (programados, en juego o pospuestos).`}{" "}
+                  Cargá sus resultados o cancelalos antes de finalizar.
+                </p>
+              )}
               <p>
                 Se cierran los pronósticos de todos los partidos y el torneo pasa a Finalizado.
               </p>
@@ -80,6 +97,7 @@ export function TournamentLifecycleActions({
           }
           confirmLabel="Finalizar torneo"
           pendingLabel="Finalizando…"
+          confirmDisabled={pending > 0}
           onConfirm={() =>
             transition("FINISHED", "Torneo finalizado", "No se pudo finalizar el torneo")
           }

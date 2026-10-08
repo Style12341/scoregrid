@@ -59,6 +59,32 @@ class TournamentTest {
         }
 
         @Test
+        void shouldFinishWhenNoMatchIsPending() {
+            var tournament = activeTournament();
+            tournament.finish(0);
+            assertThat(tournament.getStatus()).isEqualTo(TournamentStatus.FINISHED);
+        }
+
+        @Test
+        void shouldRefuseToFinishWhileMatchesArePending() {
+            var tournament = activeTournament();
+
+            assertThatThrownBy(() -> tournament.finish(2))
+                    .isInstanceOf(PendingMatchesException.class)
+                    .hasMessageContaining("2");
+            assertThat(tournament.getStatus()).isEqualTo(TournamentStatus.ACTIVE);
+        }
+
+        @Test
+        void shouldRefuseToFinishADraftAsAnInvalidTransition() {
+            var tournament = Tournament.create("Copa", null, LocalDate.now().plusDays(7), null, "42");
+
+            assertThatThrownBy(() -> tournament.finish(2))
+                    .isInstanceOf(IllegalStateException.class)
+                    .isNotInstanceOf(PendingMatchesException.class);
+        }
+
+        @Test
         void shouldTransitionActiveToCancelled() {
             var tournament = activeTournament();
             tournament.transitionTo(TournamentStatus.CANCELLED);

@@ -185,6 +185,8 @@ Tournament representation:
 ```
 `status` ∈ `DRAFT | ACTIVE | FINISHED | CANCELLED`.
 
+`PATCH /api/tournaments/{id}/status` to `FINISHED` is refused with `409 INVALID_MATCH_STATE` while any of its matches is still `SCHEDULED`, `IN_PROGRESS` or `POSTPONED`.
+
 `GET /api/tournaments/{id}/participants/{userId}` → `200 { "userId": "42", "tournamentId": "1", "joinedAt": "..." }` or `404`. This single endpoint is how Prediction Service answers "is this user allowed to predict here".
 
 ### Teams
@@ -407,7 +409,7 @@ Queues are durable. Each has `x-dead-letter-exchange: scoregrid.dlx` and a per-q
   "status": "SCHEDULED"
 }
 ```
-Published on match creation, and on any change to `startTime` or `status`. This is what keeps Prediction Service's match cache warm so the lock check costs nothing.
+Published on match creation, and on any change to a field it carries (`startTime`, `status`, teams, group or phase). This is what keeps Prediction Service's match cache warm so the lock check costs nothing.
 
 **`match.finished`** — published by tournament-service
 ```json
