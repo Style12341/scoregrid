@@ -29,3 +29,22 @@ storage:
       path: /var/tempo/wal
     local:
       path: /var/tempo/blocks
+
+# TraceQL metrics ({ } | rate(), histogram_over_time()), which Grafana's
+# Drilldown -> Traces runs, are answered by the metrics-generator's local-blocks
+# processor. Without storage.path the generator does not start at all, and
+# every metrics query fails with "error finding generators: empty ring";
+# local-blocks also needs traces_storage. No remote_write: local-blocks only
+# keeps recent spans for queries, it does not produce Prometheus series.
+# Configuration from the Tempo v2.10.8 docs, "Configure TraceQL metrics";
+# Tempo 3.0 removes local-blocks.
+metrics_generator:
+  storage:
+    path: /var/tempo/generator/wal
+  traces_storage:
+    path: /var/tempo/generator/traces
+
+overrides:
+  defaults:
+    metrics_generator:
+      processors: [local-blocks]
