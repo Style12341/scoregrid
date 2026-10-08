@@ -37,6 +37,7 @@ export function ConfirmDialog({
   pendingLabel,
   dismissLabel = "Volver",
   destructive = false,
+  confirmDisabled = false,
   onConfirm,
 }: {
   trigger?: ReactNode;
@@ -53,6 +54,8 @@ export function ConfirmDialog({
    */
   dismissLabel?: string;
   destructive?: boolean;
+  /** Keeps the action unavailable; the description should say why. */
+  confirmDisabled?: boolean;
   onConfirm: () => void | Promise<void>;
 }) {
   const [uncontrolledOpen, setUncontrolledOpen] = useState(false);
@@ -100,7 +103,7 @@ export function ConfirmDialog({
           <Button
             variant={destructive ? "destructive" : "default"}
             onClick={handleConfirm}
-            disabled={pending}
+            disabled={pending || confirmDisabled}
             aria-busy={pending || undefined}
           >
             {pending && <Loader2 className="animate-spin" aria-hidden="true" />}

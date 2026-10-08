@@ -6,7 +6,6 @@ import { deleteTournament, updateTournamentStatus } from "@/features/tournaments
 import type { Match, Tournament, TournamentStatus } from "@/features/tournaments/types/tournament";
 import { apiErrorMessage } from "@/features/tournaments/errors";
 import { isPendingMatch } from "@/features/tournaments/format";
-import { toApiError } from "@/lib/api";
 
 /**
  * The status transitions a tournament allows, each behind a confirmation that
@@ -34,13 +33,9 @@ export function TournamentLifecycleActions({
       toast.success(done, { description: name });
       onChanged();
     } catch (error) {
-      // Finishing with pending matches is refused as INVALID_MATCH_STATE; the
-      // generic copy for that code talks about a single match, so say it here.
-      const description =
-        next === "FINISHED" && toApiError(error)?.error === "INVALID_MATCH_STATE"
-          ? "Todavía hay partidos sin terminar. Cargá sus resultados o cancelalos y volvé a intentarlo."
-          : apiErrorMessage(error, "Volvé a intentarlo en unos segundos.");
-      toast.error(failed, { description });
+      toast.error(failed, {
+        description: apiErrorMessage(error, "Volvé a intentarlo en unos segundos."),
+      });
       throw error;
     }
   }
@@ -98,6 +93,7 @@ export function TournamentLifecycleActions({
           }
           confirmLabel="Finalizar torneo"
           pendingLabel="Finalizando…"
+          confirmDisabled={pending > 0}
           onConfirm={() =>
             transition("FINISHED", "Torneo finalizado", "No se pudo finalizar el torneo")
           }
