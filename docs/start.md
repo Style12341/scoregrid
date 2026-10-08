@@ -316,9 +316,9 @@ Three rules that keep this honest:
 | `postgres` | 5433 | — |
 | `mongodb` | 27018 | — |
 | `rabbitmq` | 5672, 15672 (UI) | — |
-| `prometheus` | 9090 | profile `observability` |
-| `grafana` | 3001 | profile `observability` |
-| `loki` | 3100 | profile `observability` |
+| `prometheus` | 9090 (loopback) | profile `observability` |
+| `grafana` | 3001 (loopback) | profile `observability` |
+| `loki` | 3100 (loopback) | profile `observability` |
 | `tempo` | 3200 (loopback) | profile `observability` |
 
 Host ports are offset (5433, 27018) so they never collide with a Postgres or Mongo already installed on a developer's machine. Inside the Compose network, services use standard ports and container names.
@@ -392,7 +392,7 @@ docker compose up -d                            # 11 containers (tournament-serv
 docker compose --profile observability up -d    # + Prometheus, Grafana, Loki, Promtail, Tempo
 ```
 
-Prometheus, Grafana and Loki are behind the `observability` profile so day-to-day development does not cost 2 extra GB of RAM. They are still part of the deliverable — they just are not always on.
+Prometheus, Grafana, Loki and Tempo are behind the `observability` profile so day-to-day development does not cost 2 extra GB of RAM. They are still part of the deliverable — they just are not always on.
 
 ---
 

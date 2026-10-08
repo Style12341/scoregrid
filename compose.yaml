@@ -299,7 +299,8 @@ services:
     restart: unless-stopped
     networks: [scoregrid]
     command: -config.file=/etc/loki/loki-config.yml
-    ports: ["3100:3100"]
+    # Loopback only, like Prometheus: no authentication in front of it.
+    ports: ["127.0.0.1:3100:3100"]
     volumes:
       - ./infra/loki/loki-config.yml:/etc/loki/loki-config.yml:ro
       - lokidata:/loki
@@ -337,7 +338,8 @@ services:
     profiles: [observability]
     restart: unless-stopped
     networks: [scoregrid]
-    ports: ["3001:3000"]
+    # Loopback only: the admin password is a dev default unless .env sets one.
+    ports: ["127.0.0.1:3001:3000"]
     environment:
       GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
       GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-admin}
