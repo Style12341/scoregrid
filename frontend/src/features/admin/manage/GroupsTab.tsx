@@ -23,6 +23,7 @@ import type { Group, Match, Team, Tournament } from "@/features/tournaments/type
 import { apiErrorMessage } from "@/features/tournaments/errors";
 import { matchesInGroup } from "@/features/tournaments/format";
 import { GroupStandings } from "@/features/tournaments/components/GroupStandings";
+import { GenerateFixtureDialog } from "./GenerateFixtureDialog";
 import { SelectableTeamChip } from "./TeamChip";
 import { isConfigurable, toggleId } from "./status";
 
@@ -247,25 +248,37 @@ export function GroupsTab({
           <div className="grid gap-3 xl:grid-cols-2">
             {groups.map((group) => {
               const teams = teamsByGroup[group.id] ?? [];
+              const groupMatches = matchesInGroup(matches, group.id);
               return (
                 <div key={group.id} className="rounded-lg border border-border bg-muted p-4">
-                  <div className="mb-3 flex items-center justify-between gap-2">
+                  <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                     <h4 className="text-base font-bold">
                       {group.name}
                       <span className="ml-2 text-sm font-semibold text-muted-foreground">
                         {teams.length} {teams.length === 1 ? "equipo" : "equipos"}
                       </span>
                     </h4>
-                    {canEdit && freeTeams.length > 0 && (
-                      <AssignTeamsDialog
-                        group={group}
-                        availableTeams={freeTeams}
-                        onSaved={() => {
-                          loadGroupTeams();
-                          onChanged();
-                        }}
-                      />
-                    )}
+                    <div className="flex flex-wrap gap-1">
+                      {canEdit && teams.length >= 2 && (
+                        <GenerateFixtureDialog
+                          tournamentId={tournament.id}
+                          group={group}
+                          teams={teams}
+                          groupMatches={groupMatches}
+                          onCreated={onChanged}
+                        />
+                      )}
+                      {canEdit && freeTeams.length > 0 && (
+                        <AssignTeamsDialog
+                          group={group}
+                          availableTeams={freeTeams}
+                          onSaved={() => {
+                            loadGroupTeams();
+                            onChanged();
+                          }}
+                        />
+                      )}
+                    </div>
                   </div>
                   {teams.length === 0 ? (
                     <p className="text-sm text-muted-foreground">Sin equipos asignados.</p>
@@ -274,7 +287,7 @@ export function GroupsTab({
                       <GroupStandings
                         groupName={group.name}
                         teams={teams}
-                        matches={matchesInGroup(matches, group.id)}
+                        matches={groupMatches}
                       />
                     </div>
                   )}
