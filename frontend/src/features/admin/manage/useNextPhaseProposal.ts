@@ -13,7 +13,14 @@ import {
 } from "@/features/tournaments/knockout";
 import { computeStandings } from "@/features/tournaments/standings";
 import type { Group, Match, Phase, PhaseType, Team, TeamRef } from "@/features/tournaments/types/tournament";
-import { defaultKickoff, isFutureKickoff, isValidKickoff, staggeredKickoff } from "./kickoff";
+import {
+  dayAfterLatest,
+  defaultKickoff,
+  isFutureKickoff,
+  isValidKickoff,
+  staggeredKickoff,
+  suggestedKickoff,
+} from "./kickoff";
 import type { MatchToCreate } from "./matchCreation";
 
 export type TeamSide = "home" | "away";
@@ -116,7 +123,10 @@ export function useNextPhaseProposal({
     setPicks({});
     setProposals([]);
     setIncludeThirdPlace(true);
-    setFirstKickoff(defaultKickoff());
+    // The new round is played after the one it comes from.
+    setFirstKickoff(
+      suggestedKickoff(dayAfterLatest(sourceMatches(source, matches).map((match) => match.startTime))),
+    );
     setLoadError(null);
     setError(null);
     if (blocker) return;

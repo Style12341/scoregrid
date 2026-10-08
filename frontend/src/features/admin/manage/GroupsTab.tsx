@@ -269,6 +269,7 @@ export function GroupsTab({
                       {canEdit && teams.length >= 2 && (
                         <GenerateFixtureDialog
                           tournamentId={tournament.id}
+                          tournamentStartDate={tournament.startDate}
                           group={group}
                           teams={teams}
                           groupMatches={groupMatches}

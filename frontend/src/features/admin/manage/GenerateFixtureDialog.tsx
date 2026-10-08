@@ -16,7 +16,7 @@ import { pluralize } from "@/features/tournaments/format";
 import type { Group, Match, Team } from "@/features/tournaments/types/tournament";
 import { FixturePreview } from "./FixturePreview";
 import { BatchOutcome, CreateMatchesButton } from "./MatchBatch";
-import { defaultKickoff, isFutureKickoff, isValidKickoff } from "./kickoff";
+import { dateAtDefaultHour, defaultKickoff, isFutureKickoff, isValidKickoff, suggestedKickoff } from "./kickoff";
 import { useMatchCreation, type MatchToCreate } from "./matchCreation";
 
 /** One round a day unless the admin spaces them out. */
@@ -51,12 +51,15 @@ function toMatchToCreate(groupId: string, match: PlannedMatch): MatchToCreate {
  */
 export function GenerateFixtureDialog({
   tournamentId,
+  tournamentStartDate,
   group,
   teams,
   groupMatches,
   onCreated,
 }: {
   tournamentId: string;
+  /** The fixture starts no earlier than the tournament. */
+  tournamentStartDate: string | null;
   group: Group;
   teams: Team[];
   groupMatches: Match[];
@@ -76,7 +79,7 @@ export function GenerateFixtureDialog({
     // Closing mid-batch would hide how it ended.
     if (creation.running) return;
     if (next) {
-      setFirstKickoff(defaultKickoff());
+      setFirstKickoff(suggestedKickoff(dateAtDefaultHour(tournamentStartDate)));
       setDaysBetweenRounds(String(DEFAULT_DAYS_BETWEEN_ROUNDS));
       creation.reset();
     }

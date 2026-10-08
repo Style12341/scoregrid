@@ -16,12 +16,41 @@ export function toDateTimeLocal(date: Date): string {
   return local.toISOString().slice(0, "YYYY-MM-DDTHH:mm".length);
 }
 
-/** Tomorrow at the default kickoff hour, local time. */
-export function defaultKickoff(): string {
-  const tomorrow = new Date();
+function tomorrowAtDefaultHour(now: Date): Date {
+  const tomorrow = new Date(now);
   tomorrow.setDate(tomorrow.getDate() + 1);
   tomorrow.setHours(DEFAULT_KICKOFF_HOUR, 0, 0, 0);
-  return toDateTimeLocal(tomorrow);
+  return tomorrow;
+}
+
+/** Tomorrow at the default kickoff hour, local time. */
+export function defaultKickoff(now = new Date()): string {
+  return toDateTimeLocal(tomorrowAtDefaultHour(now));
+}
+
+/**
+ * The kickoff a dialog suggests: `earliest` when it is later than the default
+ * (tomorrow at the default hour), else the default. Keeps a new round after
+ * the round it comes from, and a fixture inside its tournament.
+ */
+export function suggestedKickoff(earliest: Date | null, now = new Date()): string {
+  const fallback = tomorrowAtDefaultHour(now);
+  return toDateTimeLocal(earliest && earliest > fallback ? earliest : fallback);
+}
+
+/** One day after the latest of these kickoffs, at the same time of day; null without any. */
+export function dayAfterLatest(kickoffs: string[]): Date | null {
+  if (kickoffs.length === 0) return null;
+  const next = new Date(Math.max(...kickoffs.map((kickoff) => new Date(kickoff).getTime())));
+  next.setDate(next.getDate() + 1);
+  return next;
+}
+
+/** A tournament date ("2026-11-07") at the default kickoff hour, local time; null without one. */
+export function dateAtDefaultHour(date: string | null): Date | null {
+  if (!date) return null;
+  const [year, month, day] = date.split("T")[0].split("-").map(Number);
+  return new Date(year, month - 1, day, DEFAULT_KICKOFF_HOUR);
 }
 
 /** The input holds a complete date and time. */
