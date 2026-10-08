@@ -32,7 +32,10 @@ export function MatchesTab({
   onChanged: () => void;
 }) {
   const canEdit = isConfigurable(tournament.status);
-  const canCreate = canEdit && (groups.length > 0 || phases.length > 0) && tournamentTeams.length >= 2;
+  // GROUP_STAGE phases are not offered as a location (MatchFormDialog): group matches come from a group.
+  const knockoutPhases = phases.filter((phase) => phase.type !== "GROUP_STAGE");
+  const canCreate =
+    canEdit && (groups.length > 0 || knockoutPhases.length > 0) && tournamentTeams.length >= 2;
   const sorted = [...matches].sort(byKickoff);
 
   return (

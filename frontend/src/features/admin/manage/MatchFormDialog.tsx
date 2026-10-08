@@ -121,6 +121,12 @@ export function MatchFormDialog({
   }, [open, groupId]);
 
   const teamOptions = groupTeams ?? tournamentTeams;
+  // A group-stage match is created from its group, where the team-in-group rule
+  // applies; a GROUP_STAGE phase would skip that check. Keep only the one this
+  // match already uses, so editing it still shows its location.
+  const phaseOptions = phases.filter(
+    (phase) => phase.type !== "GROUP_STAGE" || phase.id === match?.phaseId,
+  );
 
   async function save() {
     const [kind, id] = location.split(":") as ["group" | "phase", string];
@@ -213,10 +219,10 @@ export function MatchFormDialog({
                         ))}
                       </SelectGroup>
                     )}
-                    {phases.length > 0 && (
+                    {phaseOptions.length > 0 && (
                       <SelectGroup>
                         <SelectLabel>Fases</SelectLabel>
-                        {phases.map((phase) => (
+                        {phaseOptions.map((phase) => (
                           <SelectItem key={phase.id} value={`phase:${phase.id}`}>
                             {phaseLabel(phase)}
                           </SelectItem>
