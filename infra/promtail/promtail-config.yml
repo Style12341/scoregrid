@@ -24,6 +24,10 @@ scrape_configs:
       - source_labels: ['__meta_docker_container_name']
         regex: '/(.*)'
         target_label: container
+      # Compose's replica number: tournament-service-1 and -2 are replica 1
+      # and 2. Singletons (fixed container_name) are replica 1.
+      - source_labels: ['__meta_docker_container_label_com_docker_compose_container_number']
+        target_label: replica
     pipeline_stages:
       # Services log structured JSON in the docker profile; lift the useful
       # fields out so they are queryable in Grafana rather than just text.
@@ -37,6 +41,10 @@ scrape_configs:
             message: message
       - labels:
           level:
+      # Not a label: every request has its own traceId, and a label per trace
+      # is one Loki stream per request. Structured metadata is still
+      # filterable ({service="x"} | traceId="...") and Grafana links it to Tempo.
+      - structured_metadata:
           traceId:
       - output:
           source: message

@@ -1,5 +1,6 @@
 package com.scoregrid.score.shared.config;
 
+import io.micrometer.observation.ObservationRegistry;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.beans.factory.config.ConfigurableBeanFactory;
 import org.springframework.cloud.client.loadbalancer.LoadBalanced;
@@ -30,6 +31,10 @@ import java.time.Duration;
  * and which has no response timeout: a call to a killed replica's address
  * hangs until the breaker's time limiter gives up, and the retry never gets to
  * the live replica.
+ *
+ * <p>The ObservationRegistry is set by hand for the same reason: a builder from
+ * {@code RestClient.builder()} records no observation, so the call would get no
+ * client span and send no trace headers, and the trace would stop here.
  */
 @Configuration(proxyBeanMethods = false)
 public class ClientConfig {
@@ -44,8 +49,11 @@ public class ClientConfig {
     @Bean
     @LoadBalanced
     @Scope(ConfigurableBeanFactory.SCOPE_PROTOTYPE)
-    RestClient.Builder loadBalancedRestClientBuilder(JdkClientHttpRequestFactory serviceRequestFactory) {
-        return RestClient.builder().requestFactory(serviceRequestFactory);
+    RestClient.Builder loadBalancedRestClientBuilder(JdkClientHttpRequestFactory serviceRequestFactory,
+                                                     ObservationRegistry observationRegistry) {
+        return RestClient.builder()
+                .requestFactory(serviceRequestFactory)
+                .observationRegistry(observationRegistry);
     }
 
     /**

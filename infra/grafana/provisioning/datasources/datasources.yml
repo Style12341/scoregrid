@@ -1,8 +1,22 @@
 apiVersion: 1
 
+# Fixed uids so the dashboard and the Loki <-> Tempo links below can name each
+# other. "$$" is a literal "$": Grafana expands $VAR in provisioning files.
+#
+# Prometheus and Loki existed without a uid before, and Grafana cannot change
+# the uid of a provisioned data source: with an existing grafanadata volume it
+# fails at startup with "data source not found" and keeps restarting. Deleting
+# them first lets them be recreated with the fixed uid, on every start.
+deleteDatasources:
+  - name: Prometheus
+    orgId: 1
+  - name: Loki
+    orgId: 1
+
 datasources:
   - name: Prometheus
     type: prometheus
+    uid: prometheus
     access: proxy
     url: http://prometheus:9090
     isDefault: true
@@ -10,6 +24,36 @@ datasources:
 
   - name: Loki
     type: loki
+    uid: loki
     access: proxy
     url: http://loki:3100
     editable: true
+    jsonData:
+      # Promtail stores traceId as structured metadata (not a label), which
+      # Grafana matches like a label: every log line with a traceId links to
+      # its trace in Tempo.
+      derivedFields:
+        - name: traceId
+          matcherType: label
+          matcherRegex: traceId
+          datasourceUid: tempo
+          url: "$${__value.raw}"
+          urlDisplayLabel: Ver traza en Tempo
+
+  - name: Tempo
+    type: tempo
+    uid: tempo
+    access: proxy
+    url: http://tempo:3200
+    editable: true
+    jsonData:
+      # "Logs for this span" opens the logs of every service the trace
+      # crossed, not only the span's own service.
+      tracesToLogsV2:
+        datasourceUid: loki
+        spanStartTimeShift: "-2m"
+        spanEndTimeShift: "2m"
+        customQuery: true
+        query: '{service=~".+"} | traceId="$${__trace.traceId}"'
+      nodeGraph:
+        enabled: true

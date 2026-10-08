@@ -79,6 +79,17 @@ management:
   tracing:
     sampling:
       probability: ${MANAGEMENT_TRACING_SAMPLING_PROBABILITY:1.0}
+    export:
+      zipkin:
+        # Off here, so ./mvnw runs and tests never post spans to a missing
+        # localhost:9411. compose.yaml turns it on and points it at Tempo.
+        enabled: false
+  observations:
+    enable:
+      # Spring Security adds five spans to every request (filter chain,
+      # authentication, authorization), which bury the service-to-service
+      # hops in each trace.
+      spring.security: false
 
 logging:
   level:
@@ -107,7 +118,8 @@ eureka:
     registry-fetch-interval-seconds: 5
 
 logging:
-  # Structured JSON so Promtail can lift level/traceId into Loki labels.
+  # Structured JSON so Promtail can lift level into a Loki label and traceId
+  # into structured metadata.
   structured:
     format:
       console: logstash
