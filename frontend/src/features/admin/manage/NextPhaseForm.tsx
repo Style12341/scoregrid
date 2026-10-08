@@ -22,6 +22,7 @@ export interface NextPhaseFormModel extends NextPhaseProposalForm {
     running: boolean;
     progress: { handled: number; total: number } | null;
     result: BatchResult | null;
+    staleData: boolean;
   };
   onSubmit: (event: FormEvent) => void;
 }
@@ -191,12 +192,13 @@ export function NextPhaseForm({ model }: { model: NextPhaseFormModel }) {
           {model.error}
         </p>
       )}
-      <BatchOutcome result={model.batch.result} />
+      <BatchOutcome result={model.batch.result} staleData={model.batch.staleData} />
 
       <CreateMatchesButton
         count={model.proposals.length}
         running={model.batch.running}
         progress={model.batch.progress}
+        staleData={model.batch.staleData}
       />
     </form>
   );

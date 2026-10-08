@@ -6,6 +6,7 @@ import { deleteTournament, updateTournamentStatus } from "@/features/tournaments
 import type { Match, Tournament, TournamentStatus } from "@/features/tournaments/types/tournament";
 import { apiErrorMessage } from "@/features/tournaments/errors";
 import { isPendingMatch } from "@/features/tournaments/format";
+import { toApiError } from "@/lib/api";
 
 /**
  * The status transitions a tournament allows, each behind a confirmation that
@@ -33,9 +34,12 @@ export function TournamentLifecycleActions({
       toast.success(done, { description: name });
       onChanged();
     } catch (error) {
-      toast.error(failed, {
-        description: apiErrorMessage(error, "Volvé a intentarlo en unos segundos."),
-      });
+      // INVALID_MATCH_STATE's generic copy talks about one match; when finishing it means pending matches.
+      const description =
+        next === "FINISHED" && toApiError(error)?.error === "INVALID_MATCH_STATE"
+          ? "Todavía hay partidos sin terminar. Cargá sus resultados o cancelalos antes de finalizar."
+          : apiErrorMessage(error, "Volvé a intentarlo en unos segundos.");
+      toast.error(failed, { description });
       throw error;
     }
   }

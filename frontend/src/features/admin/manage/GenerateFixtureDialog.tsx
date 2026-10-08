@@ -60,7 +60,7 @@ export function GenerateFixtureDialog({
   group: Group;
   teams: Team[];
   groupMatches: Match[];
-  onCreated: () => void;
+  onCreated: () => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
   const [firstKickoff, setFirstKickoff] = useState(defaultKickoff);
@@ -85,7 +85,7 @@ export function GenerateFixtureDialog({
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
-    if (problem || plan.length === 0) return;
+    if (problem || plan.length === 0 || creation.staleData) return;
     void creation.run(
       async () => plan.map((match) => toMatchToCreate(group.id, match)),
       (created) => ({
@@ -144,9 +144,14 @@ export function GenerateFixtureDialog({
           ) : (
             <FixturePreview plan={plan} />
           )}
-          <BatchOutcome result={creation.result} />
+          <BatchOutcome result={creation.result} staleData={creation.staleData} />
 
-          <CreateMatchesButton count={plan.length} running={creation.running} progress={creation.progress} />
+          <CreateMatchesButton
+            count={plan.length}
+            running={creation.running}
+            progress={creation.progress}
+            staleData={creation.staleData}
+          />
         </form>
       </DialogContent>
     </Dialog>

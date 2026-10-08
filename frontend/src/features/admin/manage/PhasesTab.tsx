@@ -144,7 +144,8 @@ export function PhasesTab({
   groups: Group[];
   matches: Match[];
   tournamentTeams: Team[];
-  onChanged: () => void;
+  /** Reloads the page data; resolves to whether it succeeded. */
+  onChanged: () => Promise<boolean>;
 }) {
   const knockoutSource = findKnockoutSource(phases, matches, groups.length);
 

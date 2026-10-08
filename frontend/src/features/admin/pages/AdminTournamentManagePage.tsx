@@ -61,12 +61,13 @@ export function AdminTournamentManagePage() {
   /**
    * After the first load, refreshes are silent: the tabs and the open section
    * stay on screen and only the numbers change. A failed refresh keeps the old
-   * data and says so in a toast.
+   * data and says so in a toast. Resolves to whether the data on screen is now
+   * current, so a dialog knows if it can plan again from it.
    */
-  const load = useCallback(() => {
-    if (!tournamentId) return;
+  const load = useCallback((): Promise<boolean> => {
+    if (!tournamentId) return Promise.resolve(false);
     if (!hasData.current) setLoadError(null);
-    Promise.all([
+    return Promise.all([
       getTournament(tournamentId),
       getTournamentTeams(tournamentId),
       listGroups(tournamentId),
@@ -77,18 +78,20 @@ export function AdminTournamentManagePage() {
         hasData.current = true;
         setData({ tournament, teams, groups, phases, matches });
         setTab((current) => current ?? (tournament.status === "ACTIVE" ? "matches" : "teams"));
+        return true;
       })
       .catch((error) => {
         if (hasData.current) {
           toast.error("No pudimos actualizar el torneo", {
             description: "Lo que ves puede estar desactualizado. Recargá la página.",
           });
-          return;
+          return false;
         }
         setLoadError({
           message: apiErrorMessage(error, "No pudimos cargar el torneo. Volvé a intentarlo."),
           notFound: isNotFoundError(error),
         });
+        return false;
       });
   }, [tournamentId]);
 

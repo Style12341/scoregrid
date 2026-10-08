@@ -92,8 +92,8 @@ export function useMatchCreation({
   onAllCreated,
 }: {
   tournamentId: string;
-  /** Reloads the page data; runs after every batch, complete or not. */
-  onCreated: () => void;
+  /** Reloads the page data after every batch; resolves to whether it succeeded. */
+  onCreated: () => Promise<boolean>;
   /** Usually closes the dialog. */
   onAllCreated: () => void;
 }) {
@@ -102,6 +102,10 @@ export function useMatchCreation({
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState<{ handled: number; total: number } | null>(null);
   const [result, setResult] = useState<BatchResult | null>(null);
+  // The refresh after a batch goes through the same service that may have just
+  // failed. Planning again from data that did not refresh would post matches
+  // that already exist, so a failed refresh blocks retries until a page reload.
+  const [staleData, setStaleData] = useState(false);
 
   /**
    * `prepare` says what to create and may first create what the matches need
@@ -118,7 +122,7 @@ export function useMatchCreation({
       const batch = await createMatchesInOrder(tournamentId, matches, (handled) =>
         setProgress({ handled, total: matches.length }),
       );
-      onCreated();
+      const refreshed = await onCreated();
       if (isComplete(batch)) {
         const message = success(batch.created);
         toast.success(message.title, { description: message.description });
@@ -126,11 +130,12 @@ export function useMatchCreation({
         return;
       }
       setResult(batch);
+      setStaleData(!refreshed);
       toast.error("Algunos partidos no se crearon", {
         description: `${summarizeBatch(batch)}. El detalle está en el diálogo.`,
       });
     } catch (error) {
-      onCreated();
+      setStaleData(!(await onCreated()));
       setResult({
         total: 0,
         created: 0,
@@ -146,5 +151,13 @@ export function useMatchCreation({
     }
   }
 
-  return { running, progress, result, run, reset: () => setResult(null) };
+  return {
+    running,
+    progress,
+    result,
+    staleData,
+    run,
+    // A stale flag outlives the dialog closing: only a page reload clears it.
+    reset: () => setResult(null),
+  };
 }

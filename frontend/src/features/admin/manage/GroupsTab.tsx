@@ -191,7 +191,8 @@ export function GroupsTab({
   groups: Group[];
   matches: Match[];
   tournamentTeams: Team[];
-  onChanged: () => void;
+  /** Reloads the page data; resolves to whether it succeeded. */
+  onChanged: () => Promise<boolean>;
 }) {
   // Null until the first load. Later reloads (after every change on the page)
   // keep the groups on screen, so an open dialog is not unmounted mid-task.

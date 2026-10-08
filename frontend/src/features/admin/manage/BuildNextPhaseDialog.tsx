@@ -38,7 +38,7 @@ export function BuildNextPhaseDialog({
   phases: Phase[];
   matches: Match[];
   teams: Team[];
-  onCreated: () => void;
+  onCreated: () => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
   const proposal = useNextPhaseProposal({ source, groups, phases, matches, teams });
@@ -56,6 +56,7 @@ export function BuildNextPhaseDialog({
 
   function handleSubmit(event: FormEvent) {
     event.preventDefault();
+    if (creation.staleData) return;
     const ready = proposal.readyProposals();
     if (!ready || ready.length === 0) return;
     const targetLabel = proposal.targetLabel;
