@@ -220,24 +220,8 @@
       "fieldConfig": {
         "defaults": {
           "color": {
-            "mode": "thresholds"
-          },
-          "thresholds": {
-            "mode": "absolute",
-            "steps": [
-              {
-                "color": "green",
-                "value": null
-              },
-              {
-                "color": "yellow",
-                "value": 1
-              },
-              {
-                "color": "red",
-                "value": 2
-              }
-            ]
+            "mode": "fixed",
+            "fixedColor": "green"
           },
           "mappings": [
             {
@@ -499,7 +483,7 @@
         "graphMode": "none",
         "justifyMode": "auto",
         "orientation": "auto",
-        "textMode": "value_and_name",
+        "textMode": "value",
         "reduceOptions": {
           "calcs": [
             "lastNotNull"
