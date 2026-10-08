@@ -226,7 +226,8 @@ scoregrid/
 │   ├── prometheus/prometheus.yml
 │   ├── grafana/provisioning/datasources/datasources.yml
 │   ├── loki/loki-config.yml
-│   └── promtail/promtail-config.yml
+│   ├── promtail/promtail-config.yml
+│   └── tempo/tempo.yml
 │
 ├── services/                     # each independently buildable
 │   ├── api-gateway/
@@ -318,6 +319,7 @@ Three rules that keep this honest:
 | `prometheus` | 9090 | profile `observability` |
 | `grafana` | 3001 | profile `observability` |
 | `loki` | 3100 | profile `observability` |
+| `tempo` | 3200 (loopback) | profile `observability` |
 
 Host ports are offset (5433, 27018) so they never collide with a Postgres or Mongo already installed on a developer's machine. Inside the Compose network, services use standard ports and container names.
 
@@ -387,7 +389,7 @@ RESULTS_PROVIDER_API_KEY=
 ```bash
 docker compose up -d postgres mongodb rabbitmq  # infra only, ~400 MB
 docker compose up -d                            # 11 containers (tournament-service x2), ~2.9 GB after a rehearsal
-docker compose --profile observability up -d    # + Prometheus, Grafana, Loki, Promtail
+docker compose --profile observability up -d    # + Prometheus, Grafana, Loki, Promtail, Tempo
 ```
 
 Prometheus, Grafana and Loki are behind the `observability` profile so day-to-day development does not cost 2 extra GB of RAM. They are still part of the deliverable — they just are not always on.
@@ -430,7 +432,7 @@ The platform and feature work are implemented. In place and verified:
 | `RabbitConfig` | full topology from [`contracts.md`](contracts.md#events--rabbitmq): exchange, DLX, both queues, both DLQs |
 | `application.yml` per service | ports, datasources, actuator probes, Prometheus, tracing, `docker` profile with JSON logging |
 | `compose.yaml` | 11 core containers (tournament-service x2), health-gated startup, `observability` profile |
-| `infra/` | Prometheus, Loki, Promtail, Grafana datasources and overview dashboard; Postgres and MongoDB provisioning scripts |
+| `infra/` | Prometheus, Loki, Promtail, Tempo, Grafana datasources and overview dashboard; Postgres and MongoDB provisioning scripts |
 | `frontend/` | Vite + React 19 + TS, axios client with JWT interceptor, auth context, route guard, route map |
 | Design system | Tailwind 4 + shadcn/ui restyled to the interface mock — layout shell, empty/error/loading states, `FormField`, status badges. See [`AGENTS.md`](../AGENTS.md#the-design-system) |
 | Frontend screens | Login, register, dashboard, rankings, tournaments, predictions and admin result flows |
