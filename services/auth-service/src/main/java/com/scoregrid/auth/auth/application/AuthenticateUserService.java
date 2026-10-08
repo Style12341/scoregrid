@@ -7,12 +7,16 @@ import com.scoregrid.auth.auth.domain.port.out.TokenIssuer;
 import com.scoregrid.auth.auth.domain.port.out.UserRepositoryPort;
 import com.scoregrid.auth.shared.error.DomainException;
 import com.scoregrid.auth.shared.error.ErrorKind;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
 
 @Service
 class AuthenticateUserService implements AuthenticateUserUseCase {
+
+    private static final Logger log = LoggerFactory.getLogger(AuthenticateUserService.class);
 
     private final UserRepositoryPort users;
     private final PasswordHasher passwordHasher;
@@ -35,19 +39,25 @@ class AuthenticateUserService implements AuthenticateUserUseCase {
             // measurably faster than a wrong password, which hands an attacker
             // the account enumeration the identical error message denies them.
             passwordHasher.burnComparableTime();
-            throw invalidCredentials();
+            throw loginFailed(command);
         }
 
         User user = found.get();
         if (!passwordHasher.matches(command.rawPassword(), user.passwordHash())) {
-            throw invalidCredentials();
+            throw loginFailed(command);
         }
 
+        log.info("Login succeeded: userId={}", user.id());
         return new Authentication(tokenIssuer.issue(user), user);
     }
 
-    /** One message for both failures, deliberately — docs/contracts.md#auth-service. */
-    private static DomainException invalidCredentials() {
+    /**
+     * Logs the failed login and returns the error to throw. One message for
+     * both failures, deliberately — docs/contracts.md#auth-service. The log
+     * line does not tell them apart either, and never holds the password.
+     */
+    private static DomainException loginFailed(LoginCommand command) {
+        log.warn("Login failed: usernameOrEmail={}", command.usernameOrEmail());
         return new DomainException(ErrorKind.UNAUTHORIZED, "UNAUTHORIZED",
                 "Invalid credentials.");
     }
