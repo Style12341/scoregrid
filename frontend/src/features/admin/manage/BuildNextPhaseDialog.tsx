@@ -130,6 +130,8 @@ export function BuildNextPhaseDialog({
     if (next) {
       setPicks({});
       setProposals(source.kind === "round" ? proposeFromRound(source, {}) : []);
+      // The group tables load in the effect above; show that instead of an empty form.
+      setLoadingTables(source.kind === "groups" && pendingCount === 0);
       setIncludeThirdPlace(true);
       setFirstKickoff(defaultKickoff());
       setError(null);
