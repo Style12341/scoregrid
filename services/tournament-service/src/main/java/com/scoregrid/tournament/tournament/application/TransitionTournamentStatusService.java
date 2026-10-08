@@ -1,9 +1,10 @@
 package com.scoregrid.tournament.tournament.application;
 
+import com.scoregrid.tournament.match.domain.model.Match;
 import com.scoregrid.tournament.match.domain.port.out.MatchEventPublisher;
 import com.scoregrid.tournament.match.domain.port.out.MatchRepository;
+import com.scoregrid.tournament.tournament.domain.model.PendingMatchesException;
 import com.scoregrid.tournament.tournament.domain.model.Tournament;
-import com.scoregrid.tournament.tournament.domain.model.TournamentStatus;
 import com.scoregrid.tournament.tournament.domain.port.in.TransitionTournamentStatusUseCase;
 import com.scoregrid.tournament.tournament.domain.port.out.TournamentRepository;
 import com.scoregrid.tournament.shared.error.DomainException;
@@ -37,33 +38,21 @@ public class TransitionTournamentStatusService implements TransitionTournamentSt
                 .orElseThrow(() -> new DomainException(ErrorKind.NOT_FOUND, "NOT_FOUND",
                         "Tournament not found: " + command.tournamentId()));
         var previousStatus = tournament.getStatus();
+        var matches = matchRepository.findByTournamentId(command.tournamentId());
+        long pendingMatches = matches.stream().filter(Match::isPending).count();
         try {
-            tournament.transitionTo(command.status());
+            tournament.transitionTo(command.status(), pendingMatches);
+        } catch (PendingMatchesException e) {
+            throw new DomainException(ErrorKind.CONFLICT, "INVALID_MATCH_STATE", e.getMessage());
         } catch (IllegalArgumentException e) {
             throw new DomainException(ErrorKind.VALIDATION, "VALIDATION_FAILED", e.getMessage());
         } catch (IllegalStateException e) {
             throw new DomainException(ErrorKind.CONFLICT, "TOURNAMENT_NOT_ACTIVE", e.getMessage());
         }
-        if (command.status() == TournamentStatus.FINISHED) {
-            rejectPendingMatches(tournament.getId());
-        }
         var saved = tournamentRepository.save(tournament);
         log.info("Tournament status changed: tournamentId={} fromStatus={} toStatus={}",
                 saved.getId(), previousStatus, saved.getStatus());
-        matchRepository.findByTournamentId(saved.getId())
-                .forEach(match -> matchEventPublisher.updated(match, saved.getStatus()));
+        matches.forEach(match -> matchEventPublisher.updated(match, saved.getStatus()));
         return saved;
-    }
-
-    /** A tournament cannot finish while any match can still be played or scored. */
-    private void rejectPendingMatches(Long tournamentId) {
-        long pending = matchRepository.findByTournamentId(tournamentId).stream()
-                .filter(match -> !match.getStatus().isTerminal())
-                .count();
-        if (pending > 0) {
-            throw new DomainException(ErrorKind.CONFLICT, "INVALID_MATCH_STATE",
-                    "Cannot finish tournament: " + pending
-                            + " match(es) still scheduled, in progress or postponed");
-        }
     }
 }

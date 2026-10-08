@@ -62,7 +62,11 @@ public class Tournament {
 
     // -- state machine ---------------------------------------------------------
 
-    public void transitionTo(TournamentStatus target) {
+    /**
+     * Moves the tournament to {@code target}. {@code pendingMatches} is how many
+     * of its matches are not yet finished or cancelled: finishing requires none.
+     */
+    public void transitionTo(TournamentStatus target, long pendingMatches) {
         if (target == this.status) {
             throw new IllegalStateException("Tournament is already " + target);
         }
@@ -72,6 +76,9 @@ public class Tournament {
         }
         if (target == TournamentStatus.ACTIVE) {
             validateActivation();
+        }
+        if (target == TournamentStatus.FINISHED && pendingMatches > 0) {
+            throw new PendingMatchesException(pendingMatches);
         }
         this.status = target;
         this.updatedAt = Instant.now();

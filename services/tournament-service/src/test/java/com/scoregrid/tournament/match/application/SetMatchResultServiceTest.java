@@ -50,7 +50,7 @@ class SetMatchResultServiceTest {
     void setUp() {
         useCase = new SetMatchResultService(matchRepository, eventPublisher, tournamentRepository);
         var tournament = Tournament.create("Copa", null, LocalDate.now().plusDays(1), null, "42");
-        tournament.transitionTo(TournamentStatus.ACTIVE);
+        tournament.transitionTo(TournamentStatus.ACTIVE, 0);
         lenient().when(tournamentRepository.findById(1L)).thenReturn(Optional.of(tournament));
     }
 

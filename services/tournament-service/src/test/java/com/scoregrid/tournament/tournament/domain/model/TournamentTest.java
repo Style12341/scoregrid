@@ -12,6 +12,8 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class TournamentTest {
 
+    private static final long NO_PENDING_MATCHES = 0;
+
     @Nested
     class Creation {
 
@@ -47,28 +49,45 @@ class TournamentTest {
         @Test
         void shouldTransitionDraftToActive() {
             var tournament = Tournament.create("Copa", null, LocalDate.now().plusDays(7), null, "42");
-            tournament.transitionTo(TournamentStatus.ACTIVE);
+            tournament.transitionTo(TournamentStatus.ACTIVE, NO_PENDING_MATCHES);
             assertThat(tournament.getStatus()).isEqualTo(TournamentStatus.ACTIVE);
         }
 
         @Test
         void shouldTransitionActiveToFinished() {
             var tournament = activeTournament();
-            tournament.transitionTo(TournamentStatus.FINISHED);
+            tournament.transitionTo(TournamentStatus.FINISHED, NO_PENDING_MATCHES);
             assertThat(tournament.getStatus()).isEqualTo(TournamentStatus.FINISHED);
+        }
+
+        @Test
+        void shouldRefuseToFinishWhileMatchesArePending() {
+            var tournament = activeTournament();
+
+            assertThatThrownBy(() -> tournament.transitionTo(TournamentStatus.FINISHED, 2))
+                    .isInstanceOf(PendingMatchesException.class)
+                    .hasMessageContaining("2");
+            assertThat(tournament.getStatus()).isEqualTo(TournamentStatus.ACTIVE);
+        }
+
+        @Test
+        void shouldCancelEvenWithPendingMatches() {
+            var tournament = activeTournament();
+            tournament.transitionTo(TournamentStatus.CANCELLED, 2);
+            assertThat(tournament.getStatus()).isEqualTo(TournamentStatus.CANCELLED);
         }
 
         @Test
         void shouldTransitionActiveToCancelled() {
             var tournament = activeTournament();
-            tournament.transitionTo(TournamentStatus.CANCELLED);
+            tournament.transitionTo(TournamentStatus.CANCELLED, NO_PENDING_MATCHES);
             assertThat(tournament.getStatus()).isEqualTo(TournamentStatus.CANCELLED);
         }
 
         @Test
         void shouldTransitionDraftToCancelled() {
             var tournament = Tournament.create("Copa", null, null, null, "42");
-            tournament.transitionTo(TournamentStatus.CANCELLED);
+            tournament.transitionTo(TournamentStatus.CANCELLED, NO_PENDING_MATCHES);
             assertThat(tournament.getStatus()).isEqualTo(TournamentStatus.CANCELLED);
         }
 
@@ -76,7 +95,7 @@ class TournamentTest {
         @EnumSource(value = TournamentStatus.class, names = {"FINISHED"})
         void shouldRejectTransitionToTerminal(TournamentStatus target) {
             var tournament = Tournament.create("Copa", null, LocalDate.now().plusDays(1), null, "42");
-            assertThatThrownBy(() -> tournament.transitionTo(target))
+            assertThatThrownBy(() -> tournament.transitionTo(target, NO_PENDING_MATCHES))
                     .hasMessageContaining("DRAFT")
                     .hasMessageContaining(target.name());
         }
@@ -85,7 +104,7 @@ class TournamentTest {
         @EnumSource(value = TournamentStatus.class, names = {"DRAFT", "ACTIVE", "CANCELLED"})
         void shouldRejectTransitionFromFinished(TournamentStatus target) {
             var tournament = finishedTournament();
-            assertThatThrownBy(() -> tournament.transitionTo(target))
+            assertThatThrownBy(() -> tournament.transitionTo(target, NO_PENDING_MATCHES))
                     .hasMessageContaining("FINISHED");
         }
 
@@ -93,14 +112,14 @@ class TournamentTest {
         @EnumSource(value = TournamentStatus.class, names = {"DRAFT", "ACTIVE", "FINISHED"})
         void shouldRejectTransitionFromCancelled(TournamentStatus target) {
             var tournament = cancelledTournament();
-            assertThatThrownBy(() -> tournament.transitionTo(target))
+            assertThatThrownBy(() -> tournament.transitionTo(target, NO_PENDING_MATCHES))
                     .hasMessageContaining("CANCELLED");
         }
 
         @Test
         void shouldRejectTransitionToSameStatus() {
             var tournament = Tournament.create("Copa", null, LocalDate.now().plusDays(1), null, "42");
-            assertThatThrownBy(() -> tournament.transitionTo(TournamentStatus.DRAFT))
+            assertThatThrownBy(() -> tournament.transitionTo(TournamentStatus.DRAFT, NO_PENDING_MATCHES))
                     .hasMessageContaining("already DRAFT");
         }
     }
@@ -111,14 +130,14 @@ class TournamentTest {
         @Test
         void shouldRejectActivationWhenStartDateInPast() {
             var tournament = Tournament.create("Copa", null, LocalDate.now().minusDays(1), null, "42");
-            assertThatThrownBy(() -> tournament.transitionTo(TournamentStatus.ACTIVE))
+            assertThatThrownBy(() -> tournament.transitionTo(TournamentStatus.ACTIVE, NO_PENDING_MATCHES))
                     .hasMessageContaining("startDate must be in the future");
         }
 
         @Test
         void shouldRejectActivationWhenStartDateIsNull() {
             var tournament = Tournament.create("Copa", null, null, null, "42");
-            assertThatThrownBy(() -> tournament.transitionTo(TournamentStatus.ACTIVE))
+            assertThatThrownBy(() -> tournament.transitionTo(TournamentStatus.ACTIVE, NO_PENDING_MATCHES))
                     .hasMessageContaining("startDate is required");
         }
 
@@ -127,7 +146,7 @@ class TournamentTest {
             var startDate = LocalDate.now().plusDays(10);
             var tournament = Tournament.create("Copa", null,
                     startDate, startDate.minusDays(5), "42");
-            assertThatThrownBy(() -> tournament.transitionTo(TournamentStatus.ACTIVE))
+            assertThatThrownBy(() -> tournament.transitionTo(TournamentStatus.ACTIVE, NO_PENDING_MATCHES))
                     .hasMessageContaining("endDate");
         }
 
@@ -135,7 +154,7 @@ class TournamentTest {
         void shouldAllowActivationWithEndDateEqualToStartDate() {
             var date = LocalDate.now().plusDays(7);
             var tournament = Tournament.create("Copa", null, date, date, "42");
-            tournament.transitionTo(TournamentStatus.ACTIVE);
+            tournament.transitionTo(TournamentStatus.ACTIVE, NO_PENDING_MATCHES);
             assertThat(tournament.getStatus()).isEqualTo(TournamentStatus.ACTIVE);
         }
     }
@@ -198,7 +217,7 @@ class TournamentTest {
         void shouldRejectDeletionWhenNotDraft(TournamentStatus status) {
             var tournament = activeTournament();
             if (status != TournamentStatus.ACTIVE) {
-                tournament.transitionTo(status);
+                tournament.transitionTo(status, NO_PENDING_MATCHES);
             }
             assertThat(tournament.canBeDeleted()).isFalse();
         }
@@ -209,7 +228,7 @@ class TournamentTest {
         var tournament = Tournament.create("Copa", null, LocalDate.now().plusDays(7), null, "42");
         var originalUpdatedAt = tournament.getUpdatedAt();
         Thread.sleep(1);
-        tournament.transitionTo(TournamentStatus.ACTIVE);
+        tournament.transitionTo(TournamentStatus.ACTIVE, NO_PENDING_MATCHES);
         assertThat(tournament.getUpdatedAt()).isAfter(originalUpdatedAt);
     }
 
@@ -226,19 +245,19 @@ class TournamentTest {
 
     private Tournament activeTournament() {
         var tournament = Tournament.create("Copa", null, LocalDate.now().plusDays(7), null, "42");
-        tournament.transitionTo(TournamentStatus.ACTIVE);
+        tournament.transitionTo(TournamentStatus.ACTIVE, NO_PENDING_MATCHES);
         return tournament;
     }
 
     private Tournament finishedTournament() {
         var tournament = activeTournament();
-        tournament.transitionTo(TournamentStatus.FINISHED);
+        tournament.transitionTo(TournamentStatus.FINISHED, NO_PENDING_MATCHES);
         return tournament;
     }
 
     private Tournament cancelledTournament() {
         var tournament = activeTournament();
-        tournament.transitionTo(TournamentStatus.CANCELLED);
+        tournament.transitionTo(TournamentStatus.CANCELLED, NO_PENDING_MATCHES);
         return tournament;
     }
 }

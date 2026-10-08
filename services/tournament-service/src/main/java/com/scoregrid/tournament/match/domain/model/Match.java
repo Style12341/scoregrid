@@ -252,6 +252,11 @@ public class Match {
         return startTime;
     }
 
+    /** Can still be played or scored: neither finished nor cancelled. */
+    public boolean isPending() {
+        return !status.isTerminal();
+    }
+
     public MatchStatus getStatus() {
         return status;
     }

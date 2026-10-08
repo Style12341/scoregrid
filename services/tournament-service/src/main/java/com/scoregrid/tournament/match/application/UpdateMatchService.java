@@ -21,7 +21,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
-import java.util.Objects;
 
 @Service
 @Transactional
@@ -74,10 +73,7 @@ public class UpdateMatchService implements UpdateMatchUseCase {
 
         MatchStatus previousStatus = match.getStatus();
         Instant previousStartTime = match.getStartTime();
-        Long previousHomeTeamId = match.getHomeTeam().id();
-        Long previousAwayTeamId = match.getAwayTeam().id();
-        Long previousGroupId = match.getGroupId();
-        Long previousPhaseId = match.getPhaseId();
+        var publishedBefore = PublishedFields.of(match);
 
         validateCommand(command);
         if (previousStatus.isTerminal()) {
@@ -161,18 +157,24 @@ public class UpdateMatchService implements UpdateMatchUseCase {
         log.info("Match updated: matchId={} status={} startTime={}",
                 saved.getId(), saved.getStatus(), saved.getStartTime());
 
-        // Publish when any field carried by match.updated changed, so consumers never keep stale teams.
-        boolean changed = !saved.getStatus().equals(previousStatus)
-                || !saved.getStartTime().equals(previousStartTime)
-                || !Objects.equals(saved.getHomeTeam().id(), previousHomeTeamId)
-                || !Objects.equals(saved.getAwayTeam().id(), previousAwayTeamId)
-                || !Objects.equals(saved.getGroupId(), previousGroupId)
-                || !Objects.equals(saved.getPhaseId(), previousPhaseId);
-        if (changed) {
+        if (!PublishedFields.of(saved).equals(publishedBefore)) {
             eventPublisher.updated(saved, tournament.getStatus());
         }
 
         return saved;
+    }
+
+    /**
+     * The match fields that match.updated carries (docs/contracts.md). The event
+     * is published when any of them changes, so consumers never keep stale teams.
+     */
+    private record PublishedFields(Long groupId, Long phaseId, Long homeTeamId, Long awayTeamId,
+                                   Instant startTime, MatchStatus status) {
+        static PublishedFields of(Match match) {
+            return new PublishedFields(match.getGroupId(), match.getPhaseId(),
+                    match.getHomeTeam().id(), match.getAwayTeam().id(),
+                    match.getStartTime(), match.getStatus());
+        }
     }
 
     private void applyStatusTransition(Match match, MatchStatus targetStatus,
