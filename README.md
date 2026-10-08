@@ -86,6 +86,16 @@ Wait for all containers to report healthy:
 docker compose ps
 ```
 
+### Demo data
+
+Seeds 3 users, 10 teams, 2 tournaments through the gateway — idempotent, safe to re-run:
+
+```bash
+scripts/seed.sh
+```
+
+The seeded PLAYER accounts (`sofia`, `lucas`, `carla`) share the `SEED_USER_PASSWORD` from `.env`.
+
 ### Day-to-day: databases in Docker, services from the console
 
 Most of the time you do not want the full set of JVMs in containers. Start the infrastructure only and run the service you are working on directly — it picks up the right database, user and port from `application.yml` with no environment set up:

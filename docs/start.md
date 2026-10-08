@@ -446,6 +446,14 @@ docker compose up -d --build
 
 The first build compiles six Spring applications and pulls their dependencies — budget 5–10 minutes. After that, layer caching makes it fast.
 
+Once the stack is healthy, load the demo data (3 players, 10 teams, 2 tournaments):
+
+```bash
+scripts/seed.sh
+```
+
+The script is idempotent and needs `SEED_USER_PASSWORD` (and the admin credentials) in `.env`. It only ever calls the public REST API through the gateway.
+
 ### What remains deliberately out of scope
 
 Automatic bracket generation, group standings tables, notifications, top-scorer predictions, private tournaments and per-tournament scoring rules remain out of scope. See the [PRD](PRD.md#non-goals).
