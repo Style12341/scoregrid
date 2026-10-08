@@ -62,11 +62,29 @@ public class Tournament {
 
     // -- state machine ---------------------------------------------------------
 
+    public void transitionTo(TournamentStatus target) {
+        requireTransitionAllowed(target);
+        if (target == TournamentStatus.ACTIVE) {
+            validateActivation();
+        }
+        this.status = target;
+        this.updatedAt = Instant.now();
+    }
+
     /**
-     * Moves the tournament to {@code target}. {@code pendingMatches} is how many
-     * of its matches are not yet finished or cancelled: finishing requires none.
+     * Finishes the tournament. {@code pendingMatches} is how many of its matches
+     * are still scheduled, in progress or postponed: finishing requires none,
+     * since a pending match could still be played and scored.
      */
-    public void transitionTo(TournamentStatus target, long pendingMatches) {
+    public void finish(long pendingMatches) {
+        requireTransitionAllowed(TournamentStatus.FINISHED);
+        if (pendingMatches > 0) {
+            throw new PendingMatchesException(pendingMatches);
+        }
+        transitionTo(TournamentStatus.FINISHED);
+    }
+
+    private void requireTransitionAllowed(TournamentStatus target) {
         if (target == this.status) {
             throw new IllegalStateException("Tournament is already " + target);
         }
@@ -74,14 +92,6 @@ public class Tournament {
             throw new IllegalStateException(
                     "Invalid transition: " + this.status + " → " + target);
         }
-        if (target == TournamentStatus.ACTIVE) {
-            validateActivation();
-        }
-        if (target == TournamentStatus.FINISHED && pendingMatches > 0) {
-            throw new PendingMatchesException(pendingMatches);
-        }
-        this.status = target;
-        this.updatedAt = Instant.now();
     }
 
     private static boolean isValidTransition(TournamentStatus from, TournamentStatus to) {

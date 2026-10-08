@@ -5,6 +5,7 @@ import com.scoregrid.tournament.match.domain.port.out.MatchEventPublisher;
 import com.scoregrid.tournament.match.domain.port.out.MatchRepository;
 import com.scoregrid.tournament.tournament.domain.model.PendingMatchesException;
 import com.scoregrid.tournament.tournament.domain.model.Tournament;
+import com.scoregrid.tournament.tournament.domain.model.TournamentStatus;
 import com.scoregrid.tournament.tournament.domain.port.in.TransitionTournamentStatusUseCase;
 import com.scoregrid.tournament.tournament.domain.port.out.TournamentRepository;
 import com.scoregrid.tournament.shared.error.DomainException;
@@ -39,9 +40,12 @@ public class TransitionTournamentStatusService implements TransitionTournamentSt
                         "Tournament not found: " + command.tournamentId()));
         var previousStatus = tournament.getStatus();
         var matches = matchRepository.findByTournamentId(command.tournamentId());
-        long pendingMatches = matches.stream().filter(Match::isPending).count();
         try {
-            tournament.transitionTo(command.status(), pendingMatches);
+            if (command.status() == TournamentStatus.FINISHED) {
+                tournament.finish(matches.stream().filter(Match::isPending).count());
+            } else {
+                tournament.transitionTo(command.status());
+            }
         } catch (PendingMatchesException e) {
             throw new DomainException(ErrorKind.CONFLICT, "INVALID_MATCH_STATE", e.getMessage());
         } catch (IllegalArgumentException e) {
