@@ -103,7 +103,7 @@ public class CreateMatchService implements CreateMatchUseCase {
         }
 
         var saved = matchRepository.save(match);
-        log.info("Match created: id={} tournamentId={} startTime={}",
+        log.info("Match created: matchId={} tournamentId={} startTime={}",
                 saved.getId(), saved.getTournamentId(), saved.getStartTime());
         eventPublisher.scheduled(saved, tournament.getStatus());
         return saved;

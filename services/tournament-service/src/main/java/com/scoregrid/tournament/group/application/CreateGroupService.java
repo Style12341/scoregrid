@@ -39,7 +39,7 @@ public class CreateGroupService implements CreateGroupUseCase {
         }
         var group = Group.create(command.tournamentId(), command.name(), command.displayOrder());
         var saved = groupRepository.save(group);
-        log.info("Group created: id={} tournamentId={} name={}",
+        log.info("Group created: groupId={} tournamentId={} name={}",
                 saved.getId(), saved.getTournamentId(), saved.getName());
         return saved;
     }

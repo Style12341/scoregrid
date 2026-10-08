@@ -40,7 +40,7 @@ public class CreatePhaseService implements CreatePhaseUseCase {
         var phase = Phase.create(command.tournamentId(), command.type(),
                 command.name(), command.displayOrder());
         var saved = phaseRepository.save(phase);
-        log.info("Phase created: id={} tournamentId={} type={}",
+        log.info("Phase created: phaseId={} tournamentId={} type={}",
                 saved.getId(), saved.getTournamentId(), saved.getType());
         return saved;
     }

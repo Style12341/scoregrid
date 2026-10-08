@@ -68,7 +68,7 @@ public class SetMatchResultService implements SetMatchResultUseCase {
         }
 
         matchRepository.save(match);
-        log.info("Match result set: id={} homeScore={} awayScore={}",
+        log.info("Match result set: matchId={} homeScore={} awayScore={}",
                 match.getId(), match.getHomeScore(), match.getAwayScore());
         eventPublisher.finished(match);
         eventPublisher.updated(match, tournament.getStatus());

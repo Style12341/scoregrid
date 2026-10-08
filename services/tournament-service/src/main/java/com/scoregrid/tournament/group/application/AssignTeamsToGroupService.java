@@ -15,6 +15,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
 import java.util.List;
 
 @Service
@@ -57,6 +58,7 @@ public class AssignTeamsToGroupService implements AssignTeamsToGroupUseCase {
                     "Tournament is not configurable in state " + tournament.getStatus());
         }
 
+        List<Long> addedTeamIds = new ArrayList<>();
         for (Long teamId : command.teamIds()) {
             // Check team is registered in the tournament
             if (!tournamentTeamRepository.existsByTournamentIdAndTeamId(tournamentId, teamId)) {
@@ -79,9 +81,12 @@ public class AssignTeamsToGroupService implements AssignTeamsToGroupUseCase {
             }
 
             groupTeamRepository.assign(command.groupId(), teamId);
+            addedTeamIds.add(teamId);
         }
 
-        log.info("Teams assigned to group: groupId={} teamIds={}", command.groupId(), command.teamIds());
+        if (!addedTeamIds.isEmpty()) {
+            log.info("Teams assigned to group: groupId={} teamIds={}", command.groupId(), addedTeamIds);
+        }
         // Return all teams currently assigned to the group
         return groupTeamRepository.findTeamsByGroupId(command.groupId());
     }

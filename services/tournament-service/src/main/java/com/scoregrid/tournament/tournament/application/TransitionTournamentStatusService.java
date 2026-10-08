@@ -44,7 +44,7 @@ public class TransitionTournamentStatusService implements TransitionTournamentSt
             throw new DomainException(ErrorKind.CONFLICT, "TOURNAMENT_NOT_ACTIVE", e.getMessage());
         }
         var saved = tournamentRepository.save(tournament);
-        log.info("Tournament status changed: id={} from={} to={}",
+        log.info("Tournament status changed: tournamentId={} fromStatus={} toStatus={}",
                 saved.getId(), previousStatus, saved.getStatus());
         matchRepository.findByTournamentId(saved.getId())
                 .forEach(match -> matchEventPublisher.updated(match, saved.getStatus()));

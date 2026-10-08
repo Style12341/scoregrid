@@ -153,8 +153,8 @@ public class UpdateMatchService implements UpdateMatchUseCase {
         }
 
         var saved = matchRepository.save(match);
-        log.info("Match updated: id={} from={} to={} startTime={}",
-                saved.getId(), previousStatus, saved.getStatus(), saved.getStartTime());
+        log.info("Match updated: matchId={} status={} startTime={}",
+                saved.getId(), saved.getStatus(), saved.getStartTime());
 
         // Publish event only if startTime or status changed
         boolean changed = !saved.getStatus().equals(previousStatus)

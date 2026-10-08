@@ -29,7 +29,7 @@ public class CreateTournamentService implements CreateTournamentUseCase {
                 command.endDate(),
                 command.creatorId());
         var saved = tournamentRepository.save(tournament);
-        log.info("Tournament created: id={} name={}", saved.getId(), saved.getName());
+        log.info("Tournament created: tournamentId={} name={}", saved.getId(), saved.getName());
         return saved;
     }
 }
