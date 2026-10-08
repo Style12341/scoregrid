@@ -1,6 +1,7 @@
-import { useEffect, useState, useCallback, type FormEvent } from "react";
+import { useEffect, useState, useCallback, type FormEvent, type ReactNode } from "react";
 import { Link } from "react-router-dom";
-import { Plus, Pencil, Trash2, Settings } from "lucide-react";
+import { Plus, Pencil } from "lucide-react";
+import { toast } from "sonner";
 import { usePageHeader } from "@/components/layout/page-header";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -12,6 +13,7 @@ import { LoadingState, EmptyState, ErrorState } from "@/components/common/states
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
@@ -27,157 +29,14 @@ import {
 import { Separator } from "@/components/ui/separator";
 import {
   listTournaments,
-  createTournament,
-  updateTournament,
-  deleteTournament,
-  updateTournamentStatus,
   listTeams,
   createTeam,
   updateTeam,
 } from "@/features/tournaments/api/tournaments";
-import type {
-  Tournament,
-  CreateTournamentInput,
-  Team,
-  CreateTeamInput,
-} from "@/features/tournaments/types/tournament";
+import type { Tournament, Team, CreateTeamInput } from "@/features/tournaments/types/tournament";
 import { apiErrorMessage } from "@/features/tournaments/errors";
-import {
-  TOURNAMENT_STATUS,
-  type TournamentStatus,
-} from "@/features/tournaments/types/tournament";
-
-function formatDateOnly(dateStr: string | null): string {
-  if (!dateStr) return "Sin fecha";
-  const [year, month, day] = dateStr.split("-").map(Number);
-  return new Date(year, month - 1, day).toLocaleDateString("es-AR");
-}
-
-// ── Tournament Form Dialog ────────────────────────────────────────────────
-
-function TournamentFormDialog({
-  tournament,
-  onSaved,
-  trigger,
-}: {
-  tournament?: Tournament;
-  onSaved: () => void;
-  trigger: React.ReactNode;
-}) {
-  const [open, setOpen] = useState(false);
-  const [name, setName] = useState(tournament?.name ?? "");
-  const [description, setDescription] = useState(tournament?.description ?? "");
-  const [startDate, setStartDate] = useState(
-    tournament?.startDate ? tournament.startDate.split("T")[0] : "",
-  );
-  const [endDate, setEndDate] = useState(
-    tournament?.endDate ? tournament.endDate.split("T")[0] : "",
-  );
-  const [submitting, setSubmitting] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
-  const editing = !!tournament;
-
-  async function handleSubmit(e: FormEvent) {
-    e.preventDefault();
-    setError(null);
-    if (!name.trim() || !startDate || !endDate) {
-      setError("Completá todos los campos requeridos.");
-      return;
-    }
-
-    const input: CreateTournamentInput = {
-      name: name.trim(),
-      description: description.trim() || undefined,
-      startDate: startDate,
-      endDate: endDate,
-    };
-
-    setSubmitting(true);
-    try {
-      if (editing && tournament) {
-        await updateTournament(tournament.id, input);
-      } else {
-        await createTournament(input);
-      }
-      setOpen(false);
-      onSaved();
-    } catch (e) {
-      setError(apiErrorMessage(e, "No se pudo guardar el torneo."));
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  return (
-    <Dialog open={open} onOpenChange={setOpen}>
-      <DialogTrigger asChild>{trigger}</DialogTrigger>
-      <DialogContent>
-        <DialogHeader>
-          <DialogTitle>
-            {editing ? "Editar torneo" : "Crear torneo"}
-          </DialogTitle>
-        </DialogHeader>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
-          <FormField label="Nombre" required>
-            {(field) => (
-              <Input
-                {...field}
-                value={name}
-                onChange={(e) => setName(e.target.value)}
-                placeholder="Copa Oficina 2026"
-              />
-            )}
-          </FormField>
-
-          <FormField label="Descripción">
-            {(field) => (
-              <Input
-                {...field}
-                value={description}
-                onChange={(e) => setDescription(e.target.value)}
-                placeholder="Torneo interno"
-              />
-            )}
-          </FormField>
-
-          <div className="grid grid-cols-2 gap-4">
-            <FormField label="Fecha inicio" required>
-              {(field) => (
-                <Input
-                  {...field}
-                  type="date"
-                  value={startDate}
-                  onChange={(e) => setStartDate(e.target.value)}
-                />
-              )}
-            </FormField>
-            <FormField label="Fecha fin" required>
-              {(field) => (
-                <Input
-                  {...field}
-                  type="date"
-                  value={endDate}
-                  onChange={(e) => setEndDate(e.target.value)}
-                />
-              )}
-            </FormField>
-          </div>
-
-          {error && (
-            <p className="rounded-md bg-destructive/10 px-3.5 py-3 text-sm font-bold text-destructive">
-              {error}
-            </p>
-          )}
-
-          <Button type="submit" disabled={submitting}>
-            {submitting ? "Guardando…" : editing ? "Guardar cambios" : "Crear torneo"}
-          </Button>
-        </form>
-      </DialogContent>
-    </Dialog>
-  );
-}
+import { formatDateOnly } from "@/features/tournaments/format";
+import { TournamentFormDialog } from "../components/TournamentFormDialog";
 
 // ── Team Form Dialog ──────────────────────────────────────────────────────
 
@@ -188,7 +47,7 @@ function TeamFormDialog({
 }: {
   team?: Team;
   onSaved: () => void;
-  trigger: React.ReactNode;
+  trigger: ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   const [name, setName] = useState(team?.name ?? "");
@@ -203,7 +62,7 @@ function TeamFormDialog({
     e.preventDefault();
     setError(null);
     if (!name.trim() || !shortName.trim() || !country.trim()) {
-      setError("Completá todos los campos requeridos.");
+      setError("Completá el nombre, el nombre corto y el país.");
       return;
     }
 
@@ -228,6 +87,11 @@ function TeamFormDialog({
         setCountry("");
         setLogoUrl("");
       }
+      toast.success(editing ? "Cambios guardados" : "Equipo creado", {
+        description: editing
+          ? `Actualizamos ${input.name}.`
+          : `${input.name} ya está en el catálogo. Asignalo a un torneo desde su página de administración.`,
+      });
       onSaved();
     } catch (e) {
       setError(apiErrorMessage(e, editing ? "No se pudo actualizar el equipo." : "No se pudo crear el equipo."));
@@ -242,6 +106,9 @@ function TeamFormDialog({
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{editing ? "Editar equipo" : "Crear equipo"}</DialogTitle>
+          <DialogDescription>
+            Los equipos del catálogo se pueden asignar a cualquier torneo.
+          </DialogDescription>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
           <FormField label="Nombre completo" required>
@@ -266,7 +133,7 @@ function TeamFormDialog({
                 />
               )}
             </FormField>
-            <FormField label="País (código)" required>
+            <FormField label="País (código de 2 letras)" required>
               {(field) => (
                 <Input
                   {...field}
@@ -279,7 +146,7 @@ function TeamFormDialog({
             </FormField>
           </div>
 
-          <FormField label="Logo URL">
+          <FormField label="URL del logo">
             {(field) => (
               <Input
                 {...field}
@@ -291,13 +158,13 @@ function TeamFormDialog({
           </FormField>
 
           {error && (
-            <p className="rounded-md bg-destructive/10 px-3.5 py-3 text-sm font-bold text-destructive">
+            <p role="alert" className="rounded-md bg-destructive/10 px-3.5 py-3 text-sm font-bold text-destructive">
               {error}
             </p>
           )}
 
           <Button type="submit" disabled={submitting}>
-             {submitting ? "Guardando…" : editing ? "Guardar cambios" : "Crear equipo"}
+            {submitting ? "Guardando…" : editing ? "Guardar cambios" : "Crear equipo"}
           </Button>
         </form>
       </DialogContent>
@@ -308,7 +175,7 @@ function TeamFormDialog({
 // ── Main Page ─────────────────────────────────────────────────────────────
 
 export function AdminDashboardPage() {
-  usePageHeader("Panel de administración");
+  usePageHeader("Panel de administración", "Torneos y catálogo de equipos.");
 
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -316,7 +183,6 @@ export function AdminDashboardPage() {
   const [loadingTeams, setLoadingTeams] = useState(true);
   const [errorT, setErrorT] = useState<string | null>(null);
   const [errorTeams, setErrorTeams] = useState<string | null>(null);
-  const [actionError, setActionError] = useState<string | null>(null);
   const [page, setPage] = useState(0);
   const [totalPages, setTotalPages] = useState(0);
 
@@ -346,41 +212,14 @@ export function AdminDashboardPage() {
     loadTeams();
   }, [loadTournaments, loadTeams]);
 
-  async function handleDelete(id: string) {
-    if (!window.confirm("¿Estás seguro de que querés eliminar este torneo?")) return;
-    setActionError(null);
-    try {
-      await deleteTournament(id);
-      loadTournaments();
-    } catch (e) {
-      setActionError(apiErrorMessage(e, "No se pudo eliminar el torneo."));
-    }
-  }
-
-  async function handleStatusChange(id: string, status: string) {
-    setActionError(null);
-    try {
-      await updateTournamentStatus(id, status);
-      loadTournaments();
-    } catch (e) {
-      setActionError(apiErrorMessage(e, "No se pudo cambiar el estado."));
-    }
-  }
-
   return (
     <div className="flex flex-col gap-8">
-      {actionError && (
-        <p className="rounded-md bg-destructive/10 px-3.5 py-3 text-sm font-bold text-destructive">
-          {actionError}
-        </p>
-      )}
-      {/* Torneos Section */}
       <section>
         <PageTitle
           title="Torneos"
           action={
             <TournamentFormDialog
-              onSaved={loadTournaments}
+              onSaved={() => loadTournaments()}
               trigger={
                 <Button size="sm">
                   <Plus className="size-4" aria-hidden="true" />
@@ -394,9 +233,9 @@ export function AdminDashboardPage() {
         {loadingT ? (
           <LoadingState label="Cargando torneos…" />
         ) : errorT ? (
-          <ErrorState title="Error" description={errorT} onRetry={loadTournaments} />
+          <ErrorState title="No pudimos cargar los torneos" description={errorT} onRetry={() => loadTournaments()} />
         ) : tournaments.length === 0 ? (
-          <EmptyState title="Sin torneos" description="Creá el primer torneo para empezar." />
+          <EmptyState title="Todavía no hay torneos" description="Creá el primer torneo con el botón “Crear torneo”." />
         ) : (
           <Card>
             <CardContent>
@@ -412,79 +251,39 @@ export function AdminDashboardPage() {
                 <TableBody>
                   {tournaments.map((t) => (
                     <TableRow key={t.id}>
-                      <TableCell className="font-medium">{t.name}</TableCell>
+                      <TableCell className="font-medium">
+                        <Link
+                          to={`/admin/tournaments/${t.id}`}
+                          className="rounded-sm hover:text-primary hover:underline"
+                        >
+                          {t.name}
+                        </Link>
+                      </TableCell>
                       <TableCell>
-                        <TournamentStatusBadge status={t.status as TournamentStatus} />
+                        <TournamentStatusBadge status={t.status} />
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                         {formatDateOnly(t.startDate)} – {formatDateOnly(t.endDate)}
+                        {formatDateOnly(t.startDate)} – {formatDateOnly(t.endDate)}
                       </TableCell>
                       <TableCell className="text-right">
-                        <div className="flex items-center justify-end gap-1">
-                          {t.status === TOURNAMENT_STATUS.DRAFT && (
-                            <Button
-                              size="icon-xs"
-                              variant="ghost"
-                              title="Activar"
-                              onClick={() =>
-                                handleStatusChange(t.id, TOURNAMENT_STATUS.ACTIVE)
-                              }
-                            >
-                              ▶
-                            </Button>
-                          )}
-                          {t.status === TOURNAMENT_STATUS.ACTIVE && (
-                            <Button
-                              size="icon-xs"
-                              variant="ghost"
-                              title="Finalizar"
-                              onClick={() =>
-                                handleStatusChange(t.id, TOURNAMENT_STATUS.FINISHED)
-                              }
-                            >
-                              ⏹
-                            </Button>
-                          )}
-                          {(t.status === TOURNAMENT_STATUS.DRAFT ||
-                            t.status === TOURNAMENT_STATUS.ACTIVE) && (
-                            <Button
-                              size="icon-xs"
-                              variant="ghost"
-                              title="Cancelar"
-                              onClick={() =>
-                                handleStatusChange(t.id, TOURNAMENT_STATUS.CANCELLED)
-                              }
-                            >
-                              ×
-                            </Button>
-                          )}
-
+                        <div className="flex items-center justify-end gap-1.5">
                           <TournamentFormDialog
                             tournament={t}
-                            onSaved={loadTournaments}
+                            onSaved={() => loadTournaments()}
                             trigger={
-                              <Button size="icon-xs" variant="ghost" title="Editar">
-                                <Pencil className="size-3.5" aria-hidden="true" />
+                              <Button
+                                size="icon-sm"
+                                variant="ghost"
+                                aria-label={`Editar ${t.name}`}
+                                title="Editar"
+                              >
+                                <Pencil aria-hidden="true" />
                               </Button>
                             }
                           />
-
-                          <Button asChild size="icon-xs" variant="ghost" title="Administrar">
-                            <Link to={`/admin/tournaments/${t.id}`}>
-                              <Settings className="size-3.5" aria-hidden="true" />
-                            </Link>
+                          <Button asChild size="sm">
+                            <Link to={`/admin/tournaments/${t.id}`}>Administrar</Link>
                           </Button>
-
-                          {t.status === TOURNAMENT_STATUS.DRAFT && (
-                            <Button
-                              size="icon-xs"
-                              variant="ghost"
-                              title="Eliminar"
-                              onClick={() => handleDelete(t.id)}
-                            >
-                              <Trash2 className="size-3.5 text-destructive" aria-hidden="true" />
-                            </Button>
-                          )}
                         </div>
                       </TableCell>
                     </TableRow>
@@ -542,9 +341,9 @@ export function AdminDashboardPage() {
         {loadingTeams ? (
           <LoadingState label="Cargando equipos…" />
         ) : errorTeams ? (
-          <ErrorState title="Error" description={errorTeams} onRetry={loadTeams} />
+          <ErrorState title="No pudimos cargar los equipos" description={errorTeams} onRetry={loadTeams} />
         ) : teams.length === 0 ? (
-          <EmptyState title="Sin equipos" description="Creá equipos en el catálogo para asignarlos a torneos." />
+          <EmptyState title="Todavía no hay equipos" description="Creá equipos en el catálogo para asignarlos a los torneos." />
         ) : (
           <Card>
             <CardContent>
@@ -567,15 +366,20 @@ export function AdminDashboardPage() {
                         {team.country}
                       </TableCell>
                       <TableCell className="text-sm text-muted-foreground">
-                        {team.logoUrl ? "✓" : "—"}
+                        {team.logoUrl ? "Cargado" : "Sin logo"}
                       </TableCell>
                       <TableCell className="text-right">
                         <TeamFormDialog
                           team={team}
                           onSaved={loadTeams}
                           trigger={
-                            <Button size="icon-xs" variant="ghost" title="Editar">
-                              <Pencil className="size-3.5" aria-hidden="true" />
+                            <Button
+                              size="icon-sm"
+                              variant="ghost"
+                              aria-label={`Editar ${team.name}`}
+                              title="Editar"
+                            >
+                              <Pencil aria-hidden="true" />
                             </Button>
                           }
                         />
