@@ -5,6 +5,8 @@ import com.scoregrid.tournament.team.infrastructure.persistence.TeamJpaEntity;
 import com.scoregrid.tournament.team.infrastructure.persistence.TeamJpaRepository;
 import com.scoregrid.tournament.tournament.infrastructure.persistence.TournamentJpaEntity;
 import com.scoregrid.tournament.tournament.infrastructure.persistence.TournamentJpaRepository;
+import org.hibernate.SessionFactory;
+import org.hibernate.stat.Statistics;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -14,10 +16,13 @@ import org.springframework.boot.jpa.test.autoconfigure.TestEntityManager;
 import org.springframework.context.annotation.Import;
 
 import java.time.Instant;
+import java.util.List;
+import java.util.function.Supplier;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
-@DataJpaTest
+// Statistics count the SQL statements a finder issues, to catch N+1 team loads.
+@DataJpaTest(properties = "spring.jpa.properties.hibernate.generate_statistics=true")
 @AutoConfigureTestDatabase(replace = AutoConfigureTestDatabase.Replace.NONE)
 @Import(TestcontainersConfiguration.class)
 class MatchJpaRepositoryTest {
@@ -145,5 +150,73 @@ class MatchJpaRepositoryTest {
         var found = jpaRepository.findById(saved.getId()).orElseThrow();
         assertThat(found.getHomeScore()).isNull();
         assertThat(found.getAwayScore()).isNull();
+    }
+
+    @Test
+    void shouldLoadMatchesWithTheirTeamsInOneQuery() {
+        saveMatchesBetweenFourTeams();
+
+        var matches = countingStatements(
+                () -> jpaRepository.findByTournamentIdOrderByStartTimeAsc(tournamentId));
+
+        assertThat(matches).hasSize(3);
+        assertThat(matches).extracting(m -> m.getHomeTeam().getShortName())
+                .containsExactly("ARG", "URU", "ARG");
+        assertThat(matches).extracting(m -> m.getAwayTeam().getShortName())
+                .containsExactly("BRA", "CHI", "CHI");
+    }
+
+    @Test
+    void shouldLoadMatchesByStatusWithTheirTeamsInOneQuery() {
+        saveMatchesBetweenFourTeams();
+
+        var matches = countingStatements(
+                () -> jpaRepository.findByTournamentIdAndStatusOrderByStartTimeAsc(
+                        tournamentId, "SCHEDULED"));
+
+        assertThat(matches).hasSize(3);
+        assertThat(matches).extracting(m -> m.getAwayTeam().getName())
+                .containsExactly("Brazil", "Chile", "Chile");
+    }
+
+    /** Runs the finder and asserts it issued exactly one SQL statement. */
+    private List<MatchEntity> countingStatements(Supplier<List<MatchEntity>> finder) {
+        Statistics statistics = em.getEntityManager().getEntityManagerFactory()
+                .unwrap(SessionFactory.class).getStatistics();
+        statistics.clear();
+
+        var result = finder.get();
+
+        assertThat(statistics.getPrepareStatementCount())
+                .as("SQL statements issued by the finder")
+                .isEqualTo(1);
+        return result;
+    }
+
+    private void saveMatchesBetweenFourTeams() {
+        var uruguay = saveTeam("Uruguay", "URU");
+        var chile = saveTeam("Chile", "CHI");
+        saveMatch(homeTeam, awayTeam, "2026-08-14T18:30:00Z");
+        saveMatch(uruguay, chile, "2026-08-15T18:30:00Z");
+        saveMatch(homeTeam, chile, "2026-08-16T18:30:00Z");
+        em.flush();
+        em.clear();
+    }
+
+    private TeamJpaEntity saveTeam(String name, String shortName) {
+        var team = new TeamJpaEntity();
+        team.setName(name);
+        team.setShortName(shortName);
+        return teamJpaRepository.save(team);
+    }
+
+    private void saveMatch(TeamJpaEntity home, TeamJpaEntity away, String startTime) {
+        var match = new MatchEntity();
+        match.setTournamentId(tournamentId);
+        match.setHomeTeam(home);
+        match.setAwayTeam(away);
+        match.setStartTime(Instant.parse(startTime));
+        match.setStatus("SCHEDULED");
+        jpaRepository.save(match);
     }
 }
