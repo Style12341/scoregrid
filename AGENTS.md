@@ -134,6 +134,7 @@ spring:
 - Spring Cloud CircuitBreaker carries the trace onto the time limiter's thread only for a breaker created after the factory got the `ObservationRegistry`, which Spring Cloud sets in a `@PostConstruct` that can run after a client's constructor has already called `create()`. `ResilienceConfig` hands the registry over in a `Customizer`, which runs while the factory is built.
 - Spring AMQP observation is off by default: `spring.rabbitmq.template.observation-enabled` and `spring.rabbitmq.listener.simple.observation-enabled` carry the trace through RabbitMQ.
 - Tempo (2.7+) binds its receivers to `localhost` unless the endpoint says `0.0.0.0`: the other containers cannot reach it, and nothing reports an error. See `infra/tempo/tempo.yml`.
+- A database span with no span open on its thread becomes a one-span trace of its own: Flyway's queries at every start, Mongo index creation, the readiness check's Mongo `hello` every 10 s. Each data service's `ObservationConfig` skips them on `tracer.currentSpan() == null`, not on `getParentObservation() == null`: inside an observation another predicate skipped (the `/actuator` request) the parent is that no-op observation, not null, and the flood goes through.
 
 **Boot 4 moved the test slice annotations into per-module packages.** The Boot 3 imports do not exist and there is no deprecation shim — you get `package ... does not exist`, which at least fails loudly, unlike the traps above. Verified against the resolved jars:
 

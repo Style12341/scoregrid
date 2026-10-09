@@ -248,6 +248,10 @@ tournament-service `http put /api/matches/{id}/result` →
 receive` → its `http get` to prediction-service → `score.calculated send`. A
 second branch, `match.updated`, reaches prediction-service's match cache.
 **Node graph**, above the waterfall, draws the same hops as boxes.
+Each service span holds its database calls as children: `query` spans (the
+SQL, never the parameter values) in auth-service and tournament-service,
+`<collection>.<command>` spans such as `predictions.find` in
+prediction-service and score-service.
 
 From a trace back to the logs: click a span → **Related logs**. A Loki pane
 opens beside the trace with every line of that trace, from every service it
