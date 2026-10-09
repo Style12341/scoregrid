@@ -37,6 +37,7 @@ import type { Tournament, Team, CreateTeamInput } from "@/features/tournaments/t
 import { apiErrorMessage } from "@/features/tournaments/errors";
 import { formatDateOnly } from "@/features/tournaments/format";
 import { TournamentFormDialog } from "../components/TournamentFormDialog";
+import { AdminUsersSection } from "../users/AdminUsersSection";
 
 // ── Team Form Dialog ──────────────────────────────────────────────────────
 
@@ -175,7 +176,7 @@ function TeamFormDialog({
 // ── Main Page ─────────────────────────────────────────────────────────────
 
 export function AdminDashboardPage() {
-  usePageHeader("Panel de administración", "Torneos y catálogo de equipos.");
+  usePageHeader("Panel de administración", "Torneos, equipos y usuarios.");
 
   const [tournaments, setTournaments] = useState<Tournament[]>([]);
   const [teams, setTeams] = useState<Team[]>([]);
@@ -392,6 +393,10 @@ export function AdminDashboardPage() {
           </Card>
         )}
       </section>
+
+      <Separator />
+
+      <AdminUsersSection />
     </div>
   );
 }

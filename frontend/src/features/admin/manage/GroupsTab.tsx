@@ -2,7 +2,14 @@ import { useCallback, useEffect, useState, type FormEvent } from "react";
 import { Plus } from "lucide-react";
 import { toast } from "sonner";
 import { Button } from "@/components/ui/button";
-import { Card, CardAction, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Card,
+  CardAction,
+  CardContent,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import {
   Dialog,
@@ -13,13 +20,22 @@ import {
   DialogTrigger,
 } from "@/components/ui/dialog";
 import { FormField } from "@/components/common/FormField";
-import { EmptyState, ErrorState, LoadingState } from "@/components/common/states";
+import {
+  EmptyState,
+  ErrorState,
+  LoadingState,
+} from "@/components/common/states";
 import {
   assignTeamsToGroup,
   createGroup,
   getGroupTeams,
 } from "@/features/tournaments/api/tournaments";
-import type { Group, Match, Team, Tournament } from "@/features/tournaments/types/tournament";
+import type {
+  Group,
+  Match,
+  Team,
+  Tournament,
+} from "@/features/tournaments/types/tournament";
 import { apiErrorMessage } from "@/features/tournaments/errors";
 import { matchesInGroup } from "@/features/tournaments/format";
 import { GroupStandings } from "@/features/tournaments/components/GroupStandings";
@@ -45,7 +61,7 @@ function CreateGroupDialog({
     event.preventDefault();
     setError(null);
     if (!name.trim()) {
-      setError("Ponele un nombre al grupo, por ejemplo “Grupo A”.");
+      setError("Nombre el grupo, por ejemplo “Grupo A”.");
       return;
     }
 
@@ -58,11 +74,16 @@ function CreateGroupDialog({
       setOpen(false);
       setName("");
       toast.success("Grupo creado", {
-        description: `Ya podés sumarle equipos a ${group.name}.`,
+        description: `Ya puede sumarle equipos a ${group.name}.`,
       });
       onSaved();
     } catch (requestError) {
-      setError(apiErrorMessage(requestError, "No se pudo crear el grupo. Volvé a intentarlo."));
+      setError(
+        apiErrorMessage(
+          requestError,
+          "No se pudo crear el grupo. Vuelva a intentarlo.",
+        ),
+      );
     } finally {
       setSubmitting(false);
     }
@@ -83,8 +104,16 @@ function CreateGroupDialog({
             Después de crearlo vas a poder asignarle equipos del torneo.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
-          <FormField label="Nombre del grupo" required error={error ?? undefined}>
+        <form
+          onSubmit={handleSubmit}
+          className="flex flex-col gap-4"
+          noValidate
+        >
+          <FormField
+            label="Nombre del grupo"
+            required
+            error={error ?? undefined}
+          >
             {(field) => (
               <Input
                 {...field}
@@ -127,12 +156,14 @@ function AssignTeamsDialog({
       await assignTeamsToGroup(group.id, selectedIds);
       setOpen(false);
       toast.success("Equipos asignados", {
-        description: `Sumaste ${selectedIds.length} ${selectedIds.length === 1 ? "equipo" : "equipos"} a ${group.name}.`,
+        description: `Sumó ${selectedIds.length} ${selectedIds.length === 1 ? "equipo" : "equipos"} a ${group.name}.`,
       });
       setSelectedIds([]);
       onSaved();
     } catch (requestError) {
-      setError(apiErrorMessage(requestError, "No se pudieron asignar los equipos."));
+      setError(
+        apiErrorMessage(requestError, "No se pudieron asignar los equipos."),
+      );
     } finally {
       setSubmitting(false);
     }
@@ -150,10 +181,15 @@ function AssignTeamsDialog({
         <DialogHeader>
           <DialogTitle>Agregar equipos a {group.name}</DialogTitle>
           <DialogDescription>
-            Solo aparecen los equipos del torneo que todavía no están en ningún grupo.
+            Solo aparecen los equipos del torneo que todavía no están en ningún
+            grupo.
           </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
+        <form
+          onSubmit={handleSubmit}
+          className="flex flex-col gap-4"
+          noValidate
+        >
           <div className="flex flex-wrap gap-2">
             {availableTeams.map((team) => (
               <SelectableTeamChip
@@ -166,12 +202,18 @@ function AssignTeamsDialog({
           </div>
 
           {error && (
-            <p role="alert" className="rounded-md bg-destructive/10 px-3.5 py-3 text-sm font-bold text-destructive">
+            <p
+              role="alert"
+              className="rounded-md bg-destructive/10 px-3.5 py-3 text-sm font-bold text-destructive"
+            >
               {error}
             </p>
           )}
 
-          <Button type="submit" disabled={submitting || selectedIds.length === 0}>
+          <Button
+            type="submit"
+            disabled={submitting || selectedIds.length === 0}
+          >
             {submitting ? "Asignando…" : "Asignar equipos"}
           </Button>
         </form>
@@ -196,15 +238,27 @@ export function GroupsTab({
 }) {
   // Null until the first load. Later reloads (after every change on the page)
   // keep the groups on screen, so an open dialog is not unmounted mid-task.
-  const [teamsByGroup, setTeamsByGroup] = useState<Record<string, Team[]> | null>(null);
+  const [teamsByGroup, setTeamsByGroup] = useState<Record<
+    string,
+    Team[]
+  > | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const loadGroupTeams = useCallback(() => {
     setError(null);
-    Promise.all(groups.map((group) => getGroupTeams(group.id).then((teams) => [group.id, teams] as const)))
+    Promise.all(
+      groups.map((group) =>
+        getGroupTeams(group.id).then((teams) => [group.id, teams] as const),
+      ),
+    )
       .then((entries) => setTeamsByGroup(Object.fromEntries(entries)))
       .catch((requestError) =>
-        setError(apiErrorMessage(requestError, "No pudimos cargar los equipos de cada grupo.")),
+        setError(
+          apiErrorMessage(
+            requestError,
+            "No se pudo cargar los equipos de cada grupo.",
+          ),
+        ),
       );
   }, [groups]);
 
@@ -214,7 +268,11 @@ export function GroupsTab({
 
   const canEdit = isConfigurable(tournament.status);
   // A team belongs to at most one group (ALREADY_IN_GROUP), so offer only free ones.
-  const groupedIds = new Set(Object.values(teamsByGroup ?? {}).flat().map((team) => team.id));
+  const groupedIds = new Set(
+    Object.values(teamsByGroup ?? {})
+      .flat()
+      .map((team) => team.id),
+  );
   const freeTeams = tournamentTeams.filter((team) => !groupedIds.has(team.id));
 
   return (
@@ -222,7 +280,8 @@ export function GroupsTab({
       <CardHeader>
         <CardTitle>Grupos</CardTitle>
         <CardDescription>
-          Cada equipo puede estar en un solo grupo. La tabla suma los partidos finalizados.
+          Cada equipo puede estar en un solo grupo. La tabla suma los partidos
+          finalizados.
         </CardDescription>
         {canEdit && (
           <CardAction>
@@ -238,18 +297,25 @@ export function GroupsTab({
         {groups.length === 0 ? (
           <EmptyState
             title="Todavía no hay grupos"
-            description="Creá grupos para organizar los equipos del torneo."
+            description="Cree grupos para organizar los equipos del torneo."
           />
         ) : teamsByGroup === null ? (
           error ? (
-            <ErrorState title="No pudimos cargar los grupos" description={error} onRetry={loadGroupTeams} />
+            <ErrorState
+              title="No se pudieron cargar los grupos"
+              description={error}
+              onRetry={loadGroupTeams}
+            />
           ) : (
             <LoadingState label="Cargando grupos…" />
           )
         ) : (
           <div className="grid gap-3 xl:grid-cols-2">
             {error && (
-              <p role="alert" className="text-sm font-bold text-destructive xl:col-span-2">
+              <p
+                role="alert"
+                className="text-sm font-bold text-destructive xl:col-span-2"
+              >
                 {error} Lo que ves puede estar desactualizado.
               </p>
             )}
@@ -257,12 +323,16 @@ export function GroupsTab({
               const teams = teamsByGroup[group.id] ?? [];
               const groupMatches = matchesInGroup(matches, group.id);
               return (
-                <div key={group.id} className="rounded-lg border border-border bg-muted p-4">
+                <div
+                  key={group.id}
+                  className="rounded-lg border border-border bg-muted p-4"
+                >
                   <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                     <h4 className="text-base font-bold">
                       {group.name}
                       <span className="ml-2 text-sm font-semibold text-muted-foreground">
-                        {teams.length} {teams.length === 1 ? "equipo" : "equipos"}
+                        {teams.length}{" "}
+                        {teams.length === 1 ? "equipo" : "equipos"}
                       </span>
                     </h4>
                     <div className="flex flex-wrap gap-1">
@@ -289,7 +359,9 @@ export function GroupsTab({
                     </div>
                   </div>
                   {teams.length === 0 ? (
-                    <p className="text-sm text-muted-foreground">Sin equipos asignados.</p>
+                    <p className="text-sm text-muted-foreground">
+                      Sin equipos asignados.
+                    </p>
                   ) : (
                     <div className="rounded-md border border-border bg-card">
                       <GroupStandings

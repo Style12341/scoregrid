@@ -6,13 +6,18 @@ import { FormField } from "@/components/common/FormField";
 import {
   Dialog,
   DialogContent,
-  DialogDescription,
   DialogHeader,
   DialogTitle,
   DialogTrigger,
 } from "@/components/ui/dialog";
-import { createTournament, updateTournament } from "@/features/tournaments/api/tournaments";
-import type { CreateTournamentInput, Tournament } from "@/features/tournaments/types/tournament";
+import {
+  createTournament,
+  updateTournament,
+} from "@/features/tournaments/api/tournaments";
+import type {
+  CreateTournamentInput,
+  Tournament,
+} from "@/features/tournaments/types/tournament";
 import { apiErrorMessage } from "@/features/tournaments/errors";
 
 /**
@@ -47,7 +52,9 @@ export function TournamentFormDialog({
     if (next && tournament) {
       setName(tournament.name);
       setDescription(tournament.description ?? "");
-      setStartDate(tournament.startDate ? tournament.startDate.split("T")[0] : "");
+      setStartDate(
+        tournament.startDate ? tournament.startDate.split("T")[0] : "",
+      );
       setEndDate(tournament.endDate ? tournament.endDate.split("T")[0] : "");
     }
     if (next) setError(null);
@@ -58,7 +65,7 @@ export function TournamentFormDialog({
     e.preventDefault();
     setError(null);
     if (!name.trim() || !startDate || !endDate) {
-      setError("Completá el nombre y las dos fechas.");
+      setError("Complete el nombre y las dos fechas.");
       return;
     }
     if (endDate < startDate) {
@@ -89,7 +96,7 @@ export function TournamentFormDialog({
       toast.success(editing ? "Cambios guardados" : "Torneo creado", {
         description: editing
           ? `Actualizamos ${saved.name}.`
-          : `${saved.name} quedó en borrador. Sumale equipos y partidos antes de activarlo.`,
+          : `${saved.name} quedó en borrador. Sume equipos y partidos antes de activarlo.`,
       });
       onSaved(saved);
     } catch (e) {
@@ -107,13 +114,12 @@ export function TournamentFormDialog({
           <DialogTitle>
             {editing ? "Editar torneo" : "Crear torneo"}
           </DialogTitle>
-          <DialogDescription>
-            {editing
-              ? "Cambiá el nombre, la descripción o las fechas."
-              : "El torneo se crea en borrador: nadie lo ve hasta que lo actives."}
-          </DialogDescription>
         </DialogHeader>
-        <form onSubmit={handleSubmit} className="flex flex-col gap-4" noValidate>
+        <form
+          onSubmit={handleSubmit}
+          className="flex flex-col gap-4"
+          noValidate
+        >
           <FormField label="Nombre" required>
             {(field) => (
               <Input
@@ -160,13 +166,20 @@ export function TournamentFormDialog({
           </div>
 
           {error && (
-            <p role="alert" className="rounded-md bg-destructive/10 px-3.5 py-3 text-sm font-bold text-destructive">
+            <p
+              role="alert"
+              className="rounded-md bg-destructive/10 px-3.5 py-3 text-sm font-bold text-destructive"
+            >
               {error}
             </p>
           )}
 
           <Button type="submit" disabled={submitting}>
-            {submitting ? "Guardando…" : editing ? "Guardar cambios" : "Crear torneo"}
+            {submitting
+              ? "Guardando…"
+              : editing
+                ? "Guardar cambios"
+                : "Crear torneo"}
           </Button>
         </form>
       </DialogContent>

@@ -26,7 +26,9 @@ export function Topbar() {
           <Breadcrumbs items={breadcrumbs} className="mb-1.5" />
         )}
         <h2 className="mb-1 text-[28px] font-bold">{title}</h2>
-        {subtitle && <p className="text-sm text-muted-foreground">{subtitle}</p>}
+        {subtitle && (
+          <p className="text-sm text-muted-foreground">{subtitle}</p>
+        )}
       </div>
 
       {user && (
@@ -34,7 +36,7 @@ export function Topbar() {
           <div className="grid size-9 place-items-center rounded-full bg-primary font-bold text-primary-foreground">
             {initials(user.username)}
           </div>
-          <div>
+          <div className="min-w-0 flex-1 overflow-hidden">
             <strong className="text-sm">{user.username}</strong>
             <p className="text-xs text-muted-foreground">
               {hasRole("ADMIN") ? "Administrador" : "Jugador"}

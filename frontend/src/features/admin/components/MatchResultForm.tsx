@@ -34,14 +34,15 @@ export function MatchResultForm({
 
   const home = parseScore(homeScore);
   const away = parseScore(awayScore);
-  const unchanged = isCorrection && home === match.homeScore && away === match.awayScore;
+  const unchanged =
+    isCorrection && home === match.homeScore && away === match.awayScore;
   const matchLabel = `${match.homeTeam.name} – ${match.awayTeam.name}`;
 
   async function handleSubmit(event: FormEvent) {
     event.preventDefault();
     if (home === null || away === null) {
       toast.error("Faltan los goles", {
-        description: "Ingresá los goles de los dos equipos, entre 0 y 99.",
+        description: "Ingrese los goles de ambos equipos, entre 0 y 99.",
       });
       return;
     }
@@ -49,14 +50,24 @@ export function MatchResultForm({
     setSubmitting(true);
     try {
       await loadResult(match.id, { homeScore: home, awayScore: away });
-      toast.success(isCorrection ? "Resultado corregido" : "Resultado cargado", {
-        description: `${match.homeTeam.name} ${home} – ${away} ${match.awayTeam.name}. Los puntajes se recalculan solos.`,
-      });
+      toast.success(
+        isCorrection ? "Resultado corregido" : "Resultado cargado",
+        {
+          description: `${match.homeTeam.name} ${home} – ${away} ${match.awayTeam.name}. Puntajes recalculados.`,
+        },
+      );
       onSaved();
     } catch (error) {
       toast.error(
-        isCorrection ? "No se pudo corregir el resultado" : "No se pudo cargar el resultado",
-        { description: apiErrorMessage(error, "Volvé a intentarlo en unos segundos.") },
+        isCorrection
+          ? "No se pudo corregir el resultado"
+          : "No se pudo cargar el resultado",
+        {
+          description: apiErrorMessage(
+            error,
+            "Vuelva a intentarlo en unos segundos.",
+          ),
+        },
       );
     } finally {
       setSubmitting(false);
@@ -64,7 +75,11 @@ export function MatchResultForm({
   }
 
   return (
-    <form onSubmit={handleSubmit} className="flex items-center gap-2" noValidate>
+    <form
+      onSubmit={handleSubmit}
+      className="flex items-center gap-2"
+      noValidate
+    >
       <ScoreInput
         size="sm"
         value={homeScore}
@@ -91,7 +106,11 @@ export function MatchResultForm({
         disabled={submitting || unchanged}
         aria-label={`${isCorrection ? "Corregir resultado" : "Cargar resultado"}: ${matchLabel}`}
       >
-        {submitting ? "Guardando…" : isCorrection ? "Corregir resultado" : "Cargar resultado"}
+        {submitting
+          ? "Guardando…"
+          : isCorrection
+            ? "Corregir resultado"
+            : "Cargar resultado"}
       </Button>
     </form>
   );

@@ -12,7 +12,12 @@ import {
 import { ErrorState, LoadingState } from "@/components/common/states";
 import { pluralize } from "@/features/tournaments/format";
 import type { KnockoutSource } from "@/features/tournaments/knockout";
-import type { Group, Match, Phase, Team } from "@/features/tournaments/types/tournament";
+import type {
+  Group,
+  Match,
+  Phase,
+  Team,
+} from "@/features/tournaments/types/tournament";
 import { useMatchCreation } from "./matchCreation";
 import { NextPhaseForm } from "./NextPhaseForm";
 import { ensurePhases } from "./phaseCreation";
@@ -41,8 +46,18 @@ export function BuildNextPhaseDialog({
   onCreated: () => Promise<boolean>;
 }) {
   const [open, setOpen] = useState(false);
-  const proposal = useNextPhaseProposal({ source, groups, phases, matches, teams });
-  const creation = useMatchCreation({ tournamentId, onCreated, onAllCreated: () => setOpen(false) });
+  const proposal = useNextPhaseProposal({
+    source,
+    groups,
+    phases,
+    matches,
+    teams,
+  });
+  const creation = useMatchCreation({
+    tournamentId,
+    onCreated,
+    onAllCreated: () => setOpen(false),
+  });
 
   function handleOpenChange(next: boolean) {
     // Closing mid-batch would hide how it ended.
@@ -62,7 +77,11 @@ export function BuildNextPhaseDialog({
     const targetLabel = proposal.targetLabel;
     void creation.run(
       async () => {
-        const phaseIdByType = await ensurePhases(tournamentId, phases, proposal.phaseTypesOf(ready));
+        const phaseIdByType = await ensurePhases(
+          tournamentId,
+          phases,
+          proposal.phaseTypesOf(ready),
+        );
         return proposal.toMatchesToCreate(ready, phaseIdByType);
       },
       (created) => ({
@@ -74,19 +93,28 @@ export function BuildNextPhaseDialog({
 
   function renderBody() {
     if (proposal.blocker) {
-      return <p className="rounded-md bg-muted px-3.5 py-3 text-sm">{proposal.blocker}</p>;
+      return (
+        <p className="rounded-md bg-muted px-3.5 py-3 text-sm">
+          {proposal.blocker}
+        </p>
+      );
     }
-    if (proposal.loadingTables) return <LoadingState label="Calculando las tablas…" />;
+    if (proposal.loadingTables)
+      return <LoadingState label="Calculando las tablas…" />;
     if (proposal.loadError) {
       return (
         <ErrorState
-          title="No pudimos armar la propuesta"
+          title="No se pudo armar la propuesta"
           description={proposal.loadError}
           onRetry={proposal.start}
         />
       );
     }
-    return <NextPhaseForm model={{ ...proposal.form, batch: creation, onSubmit: handleSubmit }} />;
+    return (
+      <NextPhaseForm
+        model={{ ...proposal.form, batch: creation, onSubmit: handleSubmit }}
+      />
+    );
   }
 
   return (
@@ -97,11 +125,15 @@ export function BuildNextPhaseDialog({
           Armar siguiente fase
         </Button>
       </DialogTrigger>
-      <DialogContent className="max-h-[90vh] overflow-y-auto sm:max-w-xl" showCloseButton={!creation.running}>
+      <DialogContent
+        className="max-h-[90vh] overflow-y-auto sm:max-w-xl"
+        showCloseButton={!creation.running}
+      >
         <DialogHeader>
           <DialogTitle>Armar {proposal.targetLabel.toLowerCase()}</DialogTitle>
           <DialogDescription>
-            Propuesta a partir de {sourceLabel(source)}. Podés cambiar los cruces antes de crearlos.
+            Propuesta a partir de {sourceLabel(source)}. Puede cambiar los
+            cruces antes de crearlos.
           </DialogDescription>
         </DialogHeader>
         {renderBody()}
