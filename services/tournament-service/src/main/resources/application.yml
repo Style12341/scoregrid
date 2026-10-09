@@ -112,6 +112,14 @@ management:
       # hops in each trace.
       spring.security: false
 
+# JDBC tracing (datasource-micrometer). Query spans only: the default also
+# records a span per connection, result set and generated key, which multiply
+# the span count without saying anything new. Parameter values are not
+# recorded (jdbc.datasource-proxy.include-parameter-values defaults to false):
+# a span carries the SQL with its ? placeholders, never the values. Keep it so.
+jdbc:
+  includes: query
+
 logging:
   level:
     com.scoregrid: DEBUG
