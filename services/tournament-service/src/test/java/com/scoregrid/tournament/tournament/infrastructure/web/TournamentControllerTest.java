@@ -205,8 +205,8 @@ class TournamentControllerTest {
         @Test
         @WithMockUser
         void shouldListTournaments() throws Exception {
-            var result = new ListTournamentsUseCase.Result(List.of(draftTournament), 1, 1, 0, 20);
-            when(listTournaments.execute(any(), eq(0), eq(20))).thenReturn(result);
+            var result = new ListTournamentsUseCase.Result(List.of(activeTournament), 1, 1, 0, 20);
+            when(listTournaments.execute(any(), eq(0), eq(20), eq(true))).thenReturn(result);
 
             mockMvc.perform(get("/api/tournaments"))
                     .andExpect(status().isOk())
@@ -218,7 +218,7 @@ class TournamentControllerTest {
         @WithMockUser
         void shouldFilterByStatus() throws Exception {
             var result = new ListTournamentsUseCase.Result(List.of(activeTournament), 1, 1, 0, 20);
-            when(listTournaments.execute(eq(Optional.of(TournamentStatus.ACTIVE)), eq(0), eq(20))).thenReturn(result);
+            when(listTournaments.execute(eq(Optional.of(TournamentStatus.ACTIVE)), eq(0), eq(20), eq(true))).thenReturn(result);
 
             mockMvc.perform(get("/api/tournaments?status=ACTIVE"))
                     .andExpect(status().isOk())

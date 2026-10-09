@@ -102,7 +102,7 @@ class TournamentController {
             }
         }
 
-        var result = listTournaments.execute(statusFilter, page, size);
+        var result = listTournaments.execute(statusFilter, page, size, !currentUser.hasRole("ADMIN"));
         var content = result.content().stream()
                 .map(TournamentResponse::from)
                 .toList();

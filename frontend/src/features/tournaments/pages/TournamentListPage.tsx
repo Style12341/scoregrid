@@ -15,7 +15,6 @@ import { apiErrorMessage } from "../errors";
 const STATUS_FILTERS: { label: string; value: string | null }[] = [
   { label: "Todos", value: null },
   { label: "Activos", value: TOURNAMENT_STATUS.ACTIVE },
-  { label: "Abiertos", value: TOURNAMENT_STATUS.DRAFT },
   { label: "Finalizados", value: TOURNAMENT_STATUS.FINISHED },
 ];
 

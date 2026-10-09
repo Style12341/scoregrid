@@ -9,5 +9,5 @@ import java.util.Optional;
 public interface ListTournamentsUseCase {
     record Result(List<Tournament> content, long totalElements, int totalPages, int number, int size) {}
 
-    Result execute(Optional<TournamentStatus> statusFilter, int page, int size);
+    Result execute(Optional<TournamentStatus> statusFilter, int page, int size, boolean excludeDrafts);
 }

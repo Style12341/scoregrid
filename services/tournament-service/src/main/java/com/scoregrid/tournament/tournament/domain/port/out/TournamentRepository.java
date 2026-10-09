@@ -15,9 +15,13 @@ public interface TournamentRepository {
 
     List<Tournament> findAllPaginated(int offset, int limit);
 
+    List<Tournament> findAllExceptStatus(TournamentStatus status, int offset, int limit);
+
     long countByStatus(TournamentStatus status);
 
     long count();
+
+    long countExceptStatus(TournamentStatus status);
 
     void delete(Long id);
 

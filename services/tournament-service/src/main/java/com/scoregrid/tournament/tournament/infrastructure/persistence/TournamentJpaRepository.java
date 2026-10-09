@@ -8,5 +8,9 @@ public interface TournamentJpaRepository extends JpaRepository<TournamentJpaEnti
 
     Page<TournamentJpaEntity> findAllByStatus(String status, Pageable pageable);
 
+    Page<TournamentJpaEntity> findAllByStatusNot(String status, Pageable pageable);
+
     long countByStatus(String status);
+
+    long countByStatusNot(String status);
 }

@@ -49,6 +49,15 @@ class TournamentRepositoryAdapter implements TournamentRepository {
     }
 
     @Override
+    public List<Tournament> findAllExceptStatus(TournamentStatus status, int offset, int limit) {
+        int page = offset / limit;
+        return jpaRepository.findAllByStatusNot(status.name(), PageRequest.of(page, limit))
+                .stream()
+                .map(TournamentMapper::toDomain)
+                .toList();
+    }
+
+    @Override
     public long countByStatus(TournamentStatus status) {
         return jpaRepository.countByStatus(status.name());
     }
@@ -56,6 +65,11 @@ class TournamentRepositoryAdapter implements TournamentRepository {
     @Override
     public long count() {
         return jpaRepository.count();
+    }
+
+    @Override
+    public long countExceptStatus(TournamentStatus status) {
+        return jpaRepository.countByStatusNot(status.name());
     }
 
     @Override
