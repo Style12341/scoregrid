@@ -97,6 +97,27 @@ class GetRankingsServiceTest {
         assertThat(lucia.tournamentsPlayed()).isEqualTo(1);
     }
 
+    @Test
+    @DisplayName("Individual points include zero and exclude other users")
+    void individualPointsIncludeZeroForOnlyTheActingUser() {
+        var firstMatch = matchScore("t1",
+                new ScoredPrediction("42", "p1", 2, 1, 0, false, false),
+                new ScoredPrediction("7", "p2", 2, 1, 3, true, true));
+        var secondMatch = matchScore("t1",
+                new ScoredPrediction("42", "p3", 1, 0, 3, true, true));
+        when(matchScoreRepository.findAllByUserId("42")).thenReturn(List.of(firstMatch, secondMatch));
+
+        var points = new GetRankingsService(matchScoreRepository, authClient)
+                .getPredictionPoints("42");
+
+        assertThat(points).extracting("predictionId", "points")
+                .containsExactly(
+                        org.assertj.core.groups.Tuple.tuple("p1", 0),
+                        org.assertj.core.groups.Tuple.tuple("p3", 3));
+        assertThat(points).extracting("matchId")
+                .containsExactly(firstMatch.matchId(), secondMatch.matchId());
+    }
+
     private MatchScore matchScore(String tournamentId, ScoredPrediction... scores) {
         return new MatchScore("m" + System.nanoTime(), tournamentId, 2, 1, "HOME_WIN",
                 scores.length, 0, Instant.now(), List.of(scores));

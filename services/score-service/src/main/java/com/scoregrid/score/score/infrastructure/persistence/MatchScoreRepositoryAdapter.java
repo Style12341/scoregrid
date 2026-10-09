@@ -36,6 +36,13 @@ class MatchScoreRepositoryAdapter implements MatchScoreRepository {
     }
 
     @Override
+    public List<MatchScore> findAllByUserId(String userId) {
+        return mongoRepo.findAllByUserId(userId).stream()
+                .map(MatchScoreMapper::toDomain)
+                .toList();
+    }
+
+    @Override
     public List<MatchScore> findAll() {
         return mongoRepo.findAll().stream()
                 .map(MatchScoreMapper::toDomain)

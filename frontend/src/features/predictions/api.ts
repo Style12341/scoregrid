@@ -14,6 +14,17 @@ export interface Prediction {
   updatedAt: string;
 }
 
+export interface PredictionPoints {
+  predictionId: string;
+  matchId: string;
+  points: number;
+}
+
+export async function getMyPredictionPoints(): Promise<PredictionPoints[]> {
+  const { data } = await api.get<PredictionPoints[]>("/api/rankings/me/predictions");
+  return data;
+}
+
 export interface CreatePredictionPayload {
   matchId: string;
   homeScore: number;

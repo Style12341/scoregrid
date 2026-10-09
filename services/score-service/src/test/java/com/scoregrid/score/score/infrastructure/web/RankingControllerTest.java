@@ -1,6 +1,7 @@
 package com.scoregrid.score.score.infrastructure.web;
 
 import com.scoregrid.score.score.domain.model.GlobalRankingEntry;
+import com.scoregrid.score.score.domain.model.PredictionPoints;
 import com.scoregrid.score.score.domain.model.TournamentRankingEntry;
 import com.scoregrid.score.score.domain.port.in.GetRankingsUseCase;
 import com.scoregrid.score.score.domain.port.in.RecalculateUseCase;
@@ -20,6 +21,7 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 
 import static org.mockito.BDDMockito.given;
+import static org.mockito.Mockito.verify;
 import static org.springframework.security.test.web.servlet.request.SecurityMockMvcRequestPostProcessors.jwt;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
@@ -86,6 +88,33 @@ class RankingControllerTest {
                         .with(jwt().jwt(j -> j.subject("42"))))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$[0].position").value(1));
+    }
+
+    @Test
+    @DisplayName("GET /api/rankings/me/predictions uses the JWT subject and preserves zero points")
+    void myPredictionPointsUseJwtSubject() throws Exception {
+        given(getRankings.getPredictionPoints("42"))
+                .willReturn(List.of(new PredictionPoints("p1", "m1", 0)));
+
+        mockMvc.perform(get("/api/rankings/me/predictions")
+                        .with(jwt().jwt(j -> j.subject("42"))
+                                .authorities(new SimpleGrantedAuthority("ROLE_PLAYER"))))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].predictionId").value("p1"))
+                .andExpect(jsonPath("$[0].matchId").value("m1"))
+                .andExpect(jsonPath("$[0].points").value(0))
+                .andExpect(jsonPath("$[0].userId").doesNotExist());
+
+        verify(getRankings).getPredictionPoints("42");
+    }
+
+    @Test
+    @DisplayName("GET /api/rankings/me/predictions requires a player token")
+    void myPredictionPointsRejectAdminOnlyToken() throws Exception {
+        mockMvc.perform(get("/api/rankings/me/predictions")
+                        .with(jwt().jwt(j -> j.subject("score-service"))
+                                .authorities(new SimpleGrantedAuthority("ROLE_ADMIN"))))
+                .andExpect(status().isForbidden());
     }
 
     @Test

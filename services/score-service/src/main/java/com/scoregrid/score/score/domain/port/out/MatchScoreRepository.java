@@ -13,5 +13,7 @@ public interface MatchScoreRepository {
 
     List<MatchScore> findAllByTournamentId(String tournamentId);
 
+    List<MatchScore> findAllByUserId(String userId);
+
     List<MatchScore> findAll();
 }

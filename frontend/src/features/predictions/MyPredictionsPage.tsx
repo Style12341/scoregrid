@@ -16,7 +16,7 @@ import { LoadingState, EmptyState, ErrorState } from "@/components/common/states
 import { getMatch, getTournament } from "@/features/tournaments/api/tournaments";
 import type { Match, Tournament } from "@/features/tournaments/types/tournament";
 import { formatKickoff, hasResult } from "@/features/tournaments/format";
-import { getMyPredictions, type Prediction } from "./api";
+import { getMyPredictionPoints, getMyPredictions, type Prediction } from "./api";
 
 type PredictionRow = {
   prediction: Prediction;
@@ -29,6 +29,7 @@ export function MyPredictionsPage() {
   usePageHeader("Mis pronósticos", "Lo que pronosticaste en cada torneo.");
 
   const [predictions, setPredictions] = useState<PredictionRow[]>([]);
+  const [pointsByPrediction, setPointsByPrediction] = useState<Map<string, number> | null>(null);
   const [tournaments, setTournaments] = useState<Record<string, Tournament>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -56,18 +57,24 @@ export function MyPredictionsPage() {
     async function refresh() {
       try {
         const nextPredictions = await getMyPredictions();
-        const nextRows = await Promise.all(
-          nextPredictions.map(async (prediction) => {
-            try {
-              return { prediction, match: await getMatch(prediction.matchId) };
-            } catch {
-              return { prediction, match: null };
-            }
-          }),
-        );
+        const [nextRows, nextScores] = await Promise.all([
+          Promise.all(
+            nextPredictions.map(async (prediction) => {
+              try {
+                return { prediction, match: await getMatch(prediction.matchId) };
+              } catch {
+                return { prediction, match: null };
+              }
+            }),
+          ),
+          getMyPredictionPoints().catch(() => null),
+        ]);
 
         if (!disposed) {
           setPredictions(nextRows);
+          setPointsByPrediction(nextScores === null
+            ? null
+            : new Map(nextScores.map((score) => [score.predictionId, score.points])));
           setError(null);
           setLoading(false);
           void loadTournamentNames([...new Set(nextPredictions.map((p) => p.tournamentId))]);
@@ -125,6 +132,7 @@ export function MyPredictionsPage() {
             <TableHead>Torneo</TableHead>
             <TableHead>Tu pronóstico</TableHead>
             <TableHead>Resultado</TableHead>
+            <TableHead className="text-right">Puntos</TableHead>
             <TableHead>Estado</TableHead>
             <TableHead className="pr-5 text-right">
               <span className="sr-only">Acciones</span>
@@ -134,6 +142,7 @@ export function MyPredictionsPage() {
         <TableBody>
           {predictions.map(({ prediction, match }) => {
             const tournament = tournaments[prediction.tournamentId];
+            const points = pointsByPrediction?.get(prediction.id);
             const matchName = match
               ? `${match.homeTeam.name} – ${match.awayTeam.name}`
               : "Partido no disponible";
@@ -171,6 +180,15 @@ export function MyPredictionsPage() {
                     </span>
                   ) : (
                     "Pendiente"
+                  )}
+                </TableCell>
+                <TableCell className="text-right text-sm font-bold tabular-nums">
+                  {pointsByPrediction === null ? (
+                    <span className="text-muted-foreground">No disponible</span>
+                  ) : points === undefined ? (
+                    <span className="text-muted-foreground">Pendiente</span>
+                  ) : (
+                    points
                   )}
                 </TableCell>
                 <TableCell>

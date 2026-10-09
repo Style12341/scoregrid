@@ -2,6 +2,7 @@ package com.scoregrid.score.score.application;
 
 import com.scoregrid.score.score.domain.model.GlobalRankingEntry;
 import com.scoregrid.score.score.domain.model.MatchScore;
+import com.scoregrid.score.score.domain.model.PredictionPoints;
 import com.scoregrid.score.score.domain.model.ScoredPrediction;
 import com.scoregrid.score.score.domain.model.TournamentRankingEntry;
 import com.scoregrid.score.score.domain.port.in.GetRankingsUseCase;
@@ -85,6 +86,17 @@ class GetRankingsService implements GetRankingsUseCase {
                             entry.predictionsScored(), entry.accuracy());
                 })
                 .sorted(Comparator.comparingInt(TournamentRankingEntry::position))
+                .toList();
+    }
+
+    @Override
+    public List<PredictionPoints> getPredictionPoints(String userId) {
+        return matchScoreRepository.findAllByUserId(userId).stream()
+                .flatMap(matchScore -> matchScore.individualScores().stream()
+                        .filter(score -> score.userId().equals(userId))
+                        .map(score -> new PredictionPoints(
+                                score.predictionId(), matchScore.matchId(), score.points())))
+                .sorted(Comparator.comparing(PredictionPoints::predictionId))
                 .toList();
     }
 

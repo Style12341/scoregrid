@@ -1,6 +1,7 @@
 package com.scoregrid.score.score.domain.port.in;
 
 import com.scoregrid.score.score.domain.model.GlobalRankingEntry;
+import com.scoregrid.score.score.domain.model.PredictionPoints;
 import com.scoregrid.score.score.domain.model.TournamentRankingEntry;
 
 import java.util.List;
@@ -12,4 +13,6 @@ public interface GetRankingsUseCase {
     List<GlobalRankingEntry> getGlobalRanking(int page, int size);
 
     List<TournamentRankingEntry> getUserRanking(String userId);
+
+    List<PredictionPoints> getPredictionPoints(String userId);
 }

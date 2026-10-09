@@ -2,6 +2,7 @@ package com.scoregrid.score.score.infrastructure.web;
 
 import com.scoregrid.score.score.domain.port.in.GetRankingsUseCase;
 import com.scoregrid.score.score.domain.port.in.RecalculateUseCase;
+import com.scoregrid.score.shared.security.CurrentUser;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -19,10 +20,13 @@ class RankingController {
 
     private final GetRankingsUseCase getRankings;
     private final RecalculateUseCase recalculate;
+    private final CurrentUser currentUser;
 
-    RankingController(GetRankingsUseCase getRankings, RecalculateUseCase recalculate) {
+    RankingController(GetRankingsUseCase getRankings, RecalculateUseCase recalculate,
+                      CurrentUser currentUser) {
         this.getRankings = getRankings;
         this.recalculate = recalculate;
+        this.currentUser = currentUser;
     }
 
     @GetMapping("/tournament/{tournamentId}")
@@ -46,6 +50,13 @@ class RankingController {
     ResponseEntity<List<TournamentRankingResponse>> getUserRanking(@PathVariable String userId) {
         var entries = getRankings.getUserRanking(userId);
         return ResponseEntity.ok(entries.stream().map(TournamentRankingResponse::from).toList());
+    }
+
+    @GetMapping("/me/predictions")
+    @PreAuthorize("hasRole('PLAYER')")
+    ResponseEntity<List<PredictionPointsResponse>> getMyPredictionPoints() {
+        var scores = getRankings.getPredictionPoints(currentUser.requireId());
+        return ResponseEntity.ok(scores.stream().map(PredictionPointsResponse::from).toList());
     }
 
     @PostMapping("/recalculate/match/{matchId}")

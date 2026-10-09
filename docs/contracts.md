@@ -317,6 +317,7 @@ Prediction representation:
 | `GET` | `/api/rankings/tournament/{tournamentId}?page=0&size=50` | any |
 | `GET` | `/api/rankings/global?page=0&size=50` | any |
 | `GET` | `/api/rankings/user/{userId}` | any |
+| `GET` | `/api/rankings/me/predictions` | `PLAYER` — scored predictions for the acting user |
 | `POST` | `/api/rankings/recalculate/match/{matchId}` | `ADMIN` — manual replay |
 | `POST` | `/api/rankings/recalculate/tournament/{tid}` | `ADMIN` — manual replay |
 
@@ -349,6 +350,20 @@ Global ranking entry:
   "averagePointsPerTournament": 18.0
 }
 ```
+
+`GET /api/rankings/me/predictions` returns an array of scored predictions for the
+user identified by the JWT `sub`. It never accepts a `userId` from the client:
+
+```json
+[
+  { "predictionId": "68a1f2c3d4e5f6a7b8c9d0e1", "matchId": "99", "points": 3 },
+  { "predictionId": "68a1f2c3d4e5f6a7b8c9d0e2", "matchId": "100", "points": 0 }
+]
+```
+
+Predictions without a calculated score are omitted. A scored prediction with
+zero points is present with `points: 0`. Recalculating a corrected match result
+replaces these values, like the rankings.
 
 `accuracy` = `hits / predictionsScored`, `0` when `predictionsScored` is `0`. `position` is computed at query time from the sorted result, never stored.
 
