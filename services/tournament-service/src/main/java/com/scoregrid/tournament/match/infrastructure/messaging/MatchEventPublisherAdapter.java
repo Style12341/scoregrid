@@ -41,8 +41,8 @@ class MatchEventPublisherAdapter implements MatchEventPublisher {
     }
 
     /**
-     * One INFO line per event, so the demo (docs/demo.md, Vertical Slice step
-     * 6) can show the publish next to score-service's consume. The eventId is
+     * One INFO line per event, so the demo (docs/demo.md, Observability tour)
+     * can show the publish next to score-service's consume. The eventId is
      * what consumers deduplicate on, so it is the key for following one event
      * across the logs.
      */

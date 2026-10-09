@@ -242,7 +242,7 @@ cmd_downstream() {
   local tid group home away matches=() i id victim line ok=0
   tid=${TOURNAMENT_ID:-$(curl -s -H @"$AUTH" "$GATEWAY_URL/api/tournaments?status=ACTIVE" \
     | jq -r '(.content? // .)[0].id // empty')}
-  [ -n "$tid" ] || die "no ACTIVE tournament; create one first (docs/demo.md, Vertical Slice)"
+  [ -n "$tid" ] || die "no ACTIVE tournament; create one first (scripts/seed.sh)"
   group=$(curl -s -H @"$AUTH" "$GATEWAY_URL/api/tournaments/$tid/groups" | jq -r '.[0].id // empty')
   [ -n "$group" ] || die "tournament $tid has no group"
   read -r home away < <(curl -s -H @"$AUTH" "$GATEWAY_URL/api/groups/$group/teams" | jq -r '[.[].id] | "\(.[0] // "") \(.[1] // "")"')

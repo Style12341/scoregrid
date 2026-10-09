@@ -25,7 +25,7 @@ runbook is [`docs/demo.md`](../docs/demo.md).
    Never commit an exported environment.
 
 The stack must be running with the observability profile (`docs/demo.md`,
-"Start The Stack"); folder 00 checks Eureka and Prometheus.
+"Before the demo"); folder 00 checks Eureka and Prometheus.
 
 ## Folders
 

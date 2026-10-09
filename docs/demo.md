@@ -1,433 +1,338 @@
 # ScoreGrid Demo Runbook
 
-This runbook is the shortest reproducible path for the final presentation. It
-uses only local Docker services and does not require secrets in the repository.
+The live demo is driven from the browser. The terminal is used only to break
+things and bring them back: kill a replica, stop a service, start them again.
 
-## Start The Stack
+Timings were measured on the local stack on 2026-10-09.
 
-```bash
-cp .env.example .env
-# Set SCOREGRID_JWT_SECRET, SCOREGRID_ADMIN_PASSWORD and the database passwords in .env.
-docker compose up -d --build
-docker compose --profile observability up -d
-docker compose ps
-```
+## Before the demo
 
-Wait until the core services report `healthy`. Eureka should list the Gateway
-and the four business services at <http://localhost:8761>. Then run the
-read-only smoke check, which exits non-zero if anything is not wired:
+1. Start the whole stack, observability included (`.env` filled in as
+   described in [`start.md`](start.md)):
 
-```bash
-scripts/smoke.sh
-```
+   ```bash
+   docker compose --profile observability up -d
+   docker compose --profile observability ps
+   ```
 
-For the API walkthrough, import postman/ScoreGrid.postman_collection.json and postman/ScoreGrid-local.postman_environment.json into Postman (see postman/README.md), or run the same checks headless with scripts/api-tests.sh, which exits non-zero on any failed assertion.
+   Wait until every service with a health check reads `healthy`.
 
-## Prepare Users
+2. Check the demo data: open <http://localhost:3000/tournaments> as the admin.
+   If **Liga Master** and **Copa UTN** are listed, the data is there. **Do not
+   reseed.** Only on an empty database run `scripts/seed.sh`: it creates the
+   players `sofia`, `lucas` and `carla`, ten teams, Liga Master (one group,
+   45 matches) and Copa UTN (four knockout phases, the four quarter-finals).
 
-The Auth Service creates the initial administrator automatically on startup,
-using `SCOREGRID_ADMIN_USERNAME`, `SCOREGRID_ADMIN_EMAIL` and
-`SCOREGRID_ADMIN_PASSWORD` from `.env`. The account receives both `PLAYER` and
-`ADMIN` roles, so the values configured in `.env` are the credentials for the
-first login. Register one additional participant from the frontend at
-<http://localhost:3000>.
+3. Log in everywhere before you start. The passwords are in `.env`; never
+   type them while the screen is shared.
 
-If the database already contains the configured admin username, startup keeps
-its existing password and grants the two required roles; it never resets that
-password.
+   | Where | User | Password key in `.env` |
+   |-------|------|------------------------|
+   | App, admin: <http://localhost:3000/login> | `SCOREGRID_ADMIN_USERNAME` | `SCOREGRID_ADMIN_PASSWORD` |
+   | App, participant: same URL, in a **private window** | `sofia` | `SEED_USER_PASSWORD` |
+   | Grafana: <http://localhost:3001> | `GRAFANA_ADMIN_USER` | `GRAFANA_ADMIN_PASSWORD` |
+   | RabbitMQ: <http://localhost:15672> | `RABBITMQ_USER` | `RABBITMQ_PASSWORD` |
 
-## Vertical Slice
+   The app login form is "Usuario o email", "Contraseña", **Ingresar**. The
+   private window keeps the participant's session apart from the admin's, so
+   both stay open.
 
-1. As `admin`, create a tournament and keep it in `DRAFT` while configuring it.
-2. Create two teams and assign them to the tournament.
-3. Create a group, assign both teams, create a scheduled match with a future kickoff, and activate the tournament.
-4. As the participant, join the tournament and submit a score prediction.
-5. As `admin`, load the match result with the same score as the prediction.
-6. Watch `tournament-service` publish `match.finished` and `score-service` consume it. The publish logs `Published match.finished matchId=<id> eventId=<uuid>`; score-service logs `Received match.finished event: <uuid>` with the same `eventId`, then `Match scored`:
+4. Turn off Bitwarden (or any password manager) for `localhost`. Its bar
+   appears after a login and swallows clicks on the page.
 
-```bash
-docker compose logs -f tournament-service score-service | grep -E 'match.finished|scored'
-```
+5. Open the tabs in this order: Eureka, Prometheus targets, RabbitMQ, the app
+   as admin, Grafana. Keep the participant's private window beside them and a
+   terminal in the repository root.
 
-7. Open the tournament ranking (**Ver ranking** on the tournament's page) and show the participant's three points.
-8. Submit a corrected result once more and show that rescoring replaces the match score instead of doubling the ranking.
+## 1. The architecture in the browser
 
-The same flow demonstrates the service boundaries: the frontend calls only the
-Gateway, Prediction Service validates the tournament through REST, and Score
-Service reads predictions through REST after the RabbitMQ event.
+**Eureka**: <http://localhost:8761>. Under "Instances currently registered
+with Eureka": `API-GATEWAY`, `AUTH-SERVICE`, `PREDICTION-SERVICE` and
+`SCORE-SERVICE` with `UP (1)`, `TOURNAMENT-SERVICE` with `UP (2)`. Each
+instance id is `<container id>:<service>:<port>`; Prometheus and Grafana use
+the same ids. The red "SELF PRESERVATION MODE IS TURNED OFF" banner is
+deliberate: it lets Eureka drop a dead replica within seconds. The page does
+not refresh itself: reload it.
 
-## Platform Evidence
+**Prometheus**: <http://localhost:9090/targets>. The `scoregrid-services`
+pool reads `7 / 7 up`: eureka-server, the gateway, auth, prediction, score and
+two tournament-service targets. Nothing is listed by hand: Prometheus
+discovers every replica from Eureka.
 
-- Gateway and edge authentication: `curl -i http://localhost:8080/api/auth/me` returns `401` without a token.
-- Eureka registration: open <http://localhost:8761> and show the registered applications.
-- Metrics: open <http://localhost:9090/targets> and show the `scoregrid-services` targets as `UP`. Prometheus discovers them from Eureka, so there is one target per registered replica plus `eureka-server`: seven, since tournament-service runs two replicas. The dashboard's "Servicios saludables" counts services with at least one healthy replica, so it reads 6 and turns red when any whole service is down.
-- Dashboard, centralized logs and traces: open <http://localhost:3001> and select `ScoreGrid / ScoreGrid - Overview`; see [Observability](#6-observability) for what to point at.
-- RabbitMQ: open <http://localhost:15672> and show the event queues and consumers.
+**RabbitMQ**: <http://localhost:15672>.
 
-## Hand Demo
+- **Exchanges**: `scoregrid.events` (topic) and `scoregrid.dlx`. Click
+  `scoregrid.events`; its **Bindings** route `match.scheduled` and
+  `match.updated` to `prediction.match-cache`, and `match.finished` to
+  `score.match-finished`.
+- **Queues and Streams**: those two queues with one consumer each, and their
+  dead-letter queues `prediction.match-cache.dlq` and
+  `score.match-finished.dlq` with 0 messages.
 
-Commands to run during the presentation, in order, each with what to show.
-Paste the long ones rather than typing them. They are the same in bash and
-fish unless both forms are given. Where
-[`scripts/failover-demo.sh`](#failover) does the same step unattended, the
-step says so: it is the fallback if something goes wrong on stage.
+## 2. The user journey in the app
 
-Before you start: the stack runs with the observability profile,
-`scripts/smoke.sh` passes, and the shell is in the repository root.
-Timings below were measured on the local stack on 2026-10-08.
+**Participant** (private window, <http://localhost:3000>):
 
-### 0. Demo data
+1. **Torneos**: Liga Master and Copa UTN, both "Activo".
+2. Liga Master → **Ver torneo**: tabs "Fixture", "Grupos" and "Fases". Every
+   match reads "Programado" with its kickoff, and **Pronosticar** on the right.
+3. **Pronosticar** on the first match, Atlético Central vs Ciudad Vieja FC:
+   badges "Programado" and "Pronósticos abiertos", one score field per team
+   with − and + buttons. Enter 2 and 1, then **Enviar pronóstico**: the toast
+   "Pronóstico enviado" and a shortcut to the next match without a prediction.
+4. **Mis pronósticos**: the match, "Tu pronóstico" 2 – 1, "Resultado"
+   "Pendiente". Leave this page open: it refreshes every 5 s.
 
-```bash
-scripts/seed.sh
-```
+**Admin** (normal window):
 
-Creates the players, teams and tournaments through the gateway, with the
-passwords from `.env` (its header lists the keys it needs; `scripts/seed.sh
---help` prints it). It is idempotent: a second run creates nothing.
+5. **Cargar resultados** → "Torneo": Liga Master. Under "Por cargar", type 2
+   and 1 for Atlético Central – Ciudad Vieja FC → **Cargar resultado**. The
+   toast reads "Resultado cargado" and the match moves to "Finalizados".
+6. Back in the participant's window, without touching it: "Resultado" turns
+   2 – 1 within 5 s. **Rankings** and Liga Master's **Ver ranking** show
+   `sofia` with 3 "Puntos" and 1 "Exactos"; **Panel principal** shows "Puntos
+   totales" 3. Nobody computed that in the request: tournament-service
+   published `match.finished` to RabbitMQ, score-service consumed it, read the
+   predictions from prediction-service over REST and saved the match score.
+   In RabbitMQ, **Queues and Streams** → `score.match-finished` shows the
+   message delivered and acknowledged.
+7. Rescoring replaces, it never adds: in **Cargar resultados** the finished
+   match now offers **Corregir resultado**. Send the same 2 – 1 again ("Resultado
+   corregido"): the ranking still says 3, not 6.
+8. **Panel admin** → Liga Master → **Administrar** → tab "Grupos": the
+   "Tabla general" standings (PJ, G, E, P, GF, GC, DG, PTS) now count the
+   result. **Generar fixture** opens "Generar fixture de Tabla general",
+   which says "Todos los cruces de este grupo ya tienen partido. No queda
+   nada por generar." and keeps "Crear 0 partidos" disabled: generating twice
+   creates nothing. Close it with ×.
+9. **Panel admin** → Copa UTN → **Administrar** → tab "Partidos": the four
+   "Cuartos de final" with their score fields. Load the four results, one of
+   them a draw. Then tab "Fases" → **Armar siguiente fase**: the dialog
+   proposes the semi-finals from the winners and, for the draw, asks
+   "¿Quién pasó?" ("Elegí el equipo que pasó"). Before the four results are
+   in, the same dialog says "Faltan terminar 4 partidos de Cuartos de
+   final".
+10. **Panel admin** → Liga Master → **Administrar** → **Finalizar torneo**:
+    the dialog "¿Finalizar Liga Master?" warns "Quedan N partidos sin
+    terminar" and its **Finalizar torneo** button stays disabled while any
+    match is pending. Click **Volver**.
 
-### 1. Replicas and discovery
+## 3. Load balancing
+
+1. Grafana → the dashboard <http://localhost:3001/d/scoregrid-overview>. In
+   **Servicio** pick only `tournament-service`. In its row, "Instancias
+   arriba" is 2 and "Requests por segundo, por instancia" has one line per
+   replica, labelled with the Eureka instance ids.
+2. In the app, open Liga Master and reload it five times, one at a time.
+   Each load sends three GETs to tournament-service.
+3. Within 25 s (one 15 s scrape, one 10 s dashboard refresh) both lines rise
+   together.
+4. For the exact split, open this URL. It is the per-replica request count,
+   as a table:
+
+   <http://localhost:9090/query?g0.expr=sum%20by%20%28instance%29%20%28http_server_requests_seconds_count%7Bservice%3D%22tournament-service%22%2C%20uri%21~%22%2Factuator.%2A%22%7D%29&g0.tab=table>
+
+   Note both numbers, reload Liga Master five more times, wait 15 s and click
+   **Execute**: each replica went up by about half (measured: +7 and +8 for
+   15 GETs). The gateway resolves `lb://tournament-service` for every request
+   and the LoadBalancer takes the next replica from Eureka's list in turn.
+
+tournament-service writes no log line per read, so the logs panel cannot show
+which replica answered a GET. A write does show it: the `Published
+match.finished` line of the result loaded in section 2 carries `replica=1` or
+`replica=2`.
+
+## 4. Kill a replica
+
+In Grafana, set **Servicio** to `api-gateway` and `tournament-service`. In the
+terminal:
 
 ```bash
 docker compose ps tournament-service
-```
-
-Two containers, `scoregrid-tournament-service-1` and `-2`, both `healthy`.
-
-```bash
-curl -s -H 'Accept: application/json' http://localhost:8761/eureka/apps | jq -r '.applications.application[] | .name + ": " + ([.instance[] | .instanceId + " " + .status] | join(", "))'
-```
-
-Five applications in Eureka, `TOURNAMENT-SERVICE` with two instances. An
-instance id starts with the container's short id, which maps it to a replica:
-
-```bash
-docker ps --filter name=tournament-service --format '{{.ID}} {{.Names}}'
-```
-
-### 2. A token through the gateway
-
-Type the admin password (`SCOREGRID_ADMIN_PASSWORD` in `.env`) after `read`:
-it is not echoed, and `jq` builds the JSON body, so the password never
-appears on a command line.
-
-bash:
-
-```bash
-read -rs ADMIN_PASSWORD
-TOKEN=$(jq -n --arg u admin --arg p "$ADMIN_PASSWORD" '{usernameOrEmail:$u,password:$p}' | curl -s -X POST http://localhost:8080/api/auth/login -H 'Content-Type: application/json' -d @- | jq -r .token)
-```
-
-fish:
-
-```fish
-read -s ADMIN_PASSWORD
-set TOKEN (jq -n --arg u admin --arg p "$ADMIN_PASSWORD" '{usernameOrEmail:$u,password:$p}' | curl -s -X POST http://localhost:8080/api/auth/login -H 'Content-Type: application/json' -d @- | jq -r .token)
-```
-
-`echo $TOKEN | cut -c1-20` shows the start of the JWT (`eyJhbGciOiJIUzI1NiJ9`).
-auth-service logs `Login succeeded: userId=1`.
-
-### 3. Load balancing: which replica answered
-
-How many `GET /api/tournaments` each replica has served so far:
-
-```bash
-curl -s http://localhost:9090/api/v1/query --data-urlencode 'query=sum by (instance) (http_server_requests_seconds_count{service="tournament-service", uri="/api/tournaments"})' | jq -r '.data.result[] | .metric.instance + "  " + .value[1]'
-```
-
-Send twenty through the gateway:
-
-bash:
-
-```bash
-for i in $(seq 20); do curl -s -o /dev/null -w '%{http_code} ' -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/tournaments; done; echo
-```
-
-fish:
-
-```fish
-for i in (seq 20); curl -s -o /dev/null -w '%{http_code} ' -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/tournaments; end; echo
-```
-
-Twenty `200`. Wait 15 s (one Prometheus scrape) and run the count again: each
-replica went up by 10, because the gateway round-robins. The gateway logs one
-line per request, with its trace id:
-
-```bash
-docker logs --since 1m sg-api-gateway 2>&1 | jq -rR 'fromjson? | select(.message | startswith("Request handled")) | .traceId + "  " + .message'
-```
-
-### 4. Kill a replica: the GET still succeeds
-
-`scripts/failover-demo.sh instance` does this step unattended, with a SIGTERM
-round first.
-
-```bash
 docker kill scoregrid-tournament-service-2
 ```
 
-Run the loop from step 3 again: still twenty `200`, but slower. Measured in
-two runs: 8 and 12 of the 20 GETs were slow, mostly 3.0 s (2 s connect timeout
-on the dead replica, 1 s back-off, then the live one), a few 1.1 s or 4.1 s,
-once 6.0 s (it met the dead replica twice); the others took 6-15 ms.
-The gateway log shows the retries:
+`docker kill` (SIGKILL) is the worst case: the replica cannot deregister, so
+Eureka keeps listing it until its lease expires.
 
-```bash
-docker logs --since 1m sg-api-gateway 2>&1 | jq -rR 'fromjson? | select(.level == "WARN") | .traceId + "  " + .message'
-```
+- **App**: reload Liga Master and wait until it loads, then once more. It
+  still loads, but some requests take 3 s: 2 s connect timeout on the dead
+  replica, 1 s back-off, then the live replica answers. The gateway retries
+  only a GET whose connection could not be opened, at most three attempts.
+  Reload one at a time: overlapping reloads can send all three attempts of
+  one request to the dead replica, and the gateway then answers 503 at its
+  8 s limit. The page shows "No pudimos cargar el fixture" / "El servicio no
+  está disponible. Intentá nuevamente."; **Reintentar** loads it.
+- **Grafana**: "Instancias arriba por servicio" shows tournament-service 1 at
+  the next scrape. "Reintentos por minuto (WARN en los logs)" rises for
+  api-gateway. The logs panel shows orange `WARN` lines: `Retrying GET
+  /api/tournaments/1/participants/1 on route tournament (retry 1 of 2) after
+  ConnectTimeoutException`. Expand one → **Links** → traceId → **Ver traza en
+  Tempo**: a 6 s trace with two red `http get (2s)` spans, the connect
+  timeouts, then the call tournament-service answered.
+- **Eureka** (reload): `TOURNAMENT-SERVICE` `UP (1)`. Eureka evicted the
+  replica 20 s after the kill. The gateway keeps retrying until its own
+  registry copy and LoadBalancer cache catch up, 25-35 s after the kill.
 
-`Retrying GET /api/tournaments on route tournament (retry 1 of 2) after
-ConnectTimeoutException`. Keep one of those trace ids for step 6. The retries
-stop 25-30 s after the kill, when Eureka has evicted the replica: the Eureka
-command from step 1 lists one `TOURNAMENT-SERVICE` instance. Bring it back:
+Bring it back:
 
 ```bash
 docker start scoregrid-tournament-service-2
 ```
 
-`healthy` in `docker compose ps tournament-service` and back in Eureka 16 s
-later.
+Healthy and back in Eureka 21 s later. The logs panel shows `replica=2`
+starting and "Registering application TOURNAMENT-SERVICE with eureka with
+status UP"; "Instancias arriba" is 2 again at the next scrape.
 
-### 5. A whole service down: 503 and the breaker
+## 5. A whole service down
 
-`scripts/failover-demo.sh service-down` does this step unattended.
+In Grafana, set **Servicio** to `api-gateway` and `prediction-service`, and
+the time range to **Last 5 minutes** so the breaker change is wide enough to
+read. In the terminal:
 
 ```bash
 docker compose stop prediction-service
-curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/predictions/me | jq
 ```
 
-`503` in the contract envelope: `"error": "DOWNSTREAM_UNAVAILABLE"`. The
-first one can take a few seconds while the gateway still tries the old
-address. Repeat the `curl` five times: each answer now takes 2-5 ms, and after
-four failures the gateway's breaker opens and stops calling. The WARN lines from step 4's log
-command name the cause: `Unable to find instance for prediction-service`,
-then `CircuitBreaker 'prediction-service' is OPEN`. Prometheus sees it at its
-next scrape:
+- **App**, participant window: reload **Mis pronósticos**. It shows "No
+  pudimos cargar tus pronósticos" / "Puede que el servicio de pronósticos no
+  esté disponible. Volvé a intentarlo en unos segundos." with
+  **Reintentar**. **Enviar pronóstico** on a match fails with "No se pudo
+  guardar el pronóstico" / "El servicio no está disponible. Intentá
+  nuevamente.", and nothing is saved.
+- **Grafana**: "Servicios saludables" turns red at 5. "Respuestas del gateway
+  por código HTTP" gets a `503` series. In "Estado de los circuit breakers",
+  `api-gateway / prediction-service` goes from "Cerrado" to "Abierto" (red)
+  after four failed calls, and "Llamadas rechazadas por breaker abierto"
+  rises: the gateway answers 503 at once without calling. The logs panel
+  names the cause: `Unable to find instance for prediction-service`, then
+  `CircuitBreaker 'prediction-service' is OPEN`.
 
-```bash
-curl -s http://localhost:9090/api/v1/query --data-urlencode 'query=resilience4j_circuitbreaker_state{application="api-gateway", name="prediction-service", state="open"}' | jq -r '.data.result[].value[1]'
-```
-
-`1` means open. Do not load a match result now (see
-[Reset](#reset-when-something-is-left-half-done)). Restart:
+**Do not load a match result now.** score-service would consume
+`match.finished`, fail to read the predictions and dead-letter the event (see
+[below](#if-something-is-left-half-done)).
 
 ```bash
 docker compose start prediction-service
 ```
 
-The first `200` came 23 s later. The breaker then shows as half-open until a
-few calls succeed.
+Healthy 27 s later. The open "Mis pronósticos" page recovers by itself at
+its next refresh (35 s after the start, measured); the breaker goes through
+half-open back to "Cerrado".
 
-### 6. Observability
+## 6. Observability tour
 
-**Dashboard**: <http://localhost:3001/d/scoregrid-overview>. Log in with
-`GRAFANA_ADMIN_USER` / `GRAFANA_ADMIN_PASSWORD` from `.env` (`admin` / `admin`
-when unset).
+The dashboard <http://localhost:3001/d/scoregrid-overview>, row by row:
 
-- *Resumen*: "Servicios saludables" is 6; "Instancias arriba por servicio"
-  shows two for tournament-service.
-- Pick `tournament-service` in **Servicio**: its row shows the two instances
-  side by side in requests per second, 5xx, latency (mean and p95) and JVM
-  heap. After step 3 both get traffic; after step 4 one line stops.
-- *Gateway y Resilience4J*: the breaker turns from *Cerrado* to *Abierto*
-  (red) in step 5, "Respuestas del gateway por código HTTP" shows the `503`,
-  and "Reintentos por minuto" the retries of step 4.
-- *Logs*: the selected services, each line with its `container` and
-  `replica`.
-- *Trazas*: "Trazas recientes" lists the 20 newest traces through the
-  services picked in **Servicio**. Click an id in the *Traza* column to open
-  its waterfall.
+- **Resumen**: "Servicios saludables" (6: eureka-server, api-gateway and the
+  four business services), "Instancias arriba por servicio", "Requests por
+  segundo, por servicio".
+- **Gateway y Resilience4J**: "Estado de los circuit breakers", "Llamadas
+  rechazadas por breaker abierto", "Respuestas del gateway por código HTTP",
+  "Reintentos por minuto (WARN en los logs)".
+- **Servicio: …**: one row per service picked in **Servicio**, per instance:
+  requests, 5xx, latency (mean and p95), JVM heap.
+- **Logs**: "Logs de los servicios seleccionados", each line labelled with
+  its `container` and `replica`.
+- **Trazas**: "Trazas recientes", the 20 newest traces through the services
+  in **Servicio**.
 
-**Logs** (Grafana → Explore → Loki, paste a query):
+From logs to a trace, across RabbitMQ: set **Servicio** to
+`tournament-service` and `score-service`. After the result of step 2 the
+logs panel shows `Published match.finished matchId=<id> eventId=<uuid>` from
+tournament-service, then score-service's `Received match.finished event:
+<same uuid>` and `Match scored`. Expand the `Published` line → **Links** →
+traceId → **Ver traza en Tempo**. The waterfall: api-gateway →
+tournament-service `http put /api/matches/{id}/result` →
+`scoregrid.events/match.finished send` → score-service `score.match-finished
+receive` → its `http get` to prediction-service → `score.calculated send`. A
+second branch, `match.updated`, reaches prediction-service's match cache.
+**Node graph**, above the waterfall, draws the same hops as boxes.
 
-| Query | Shows |
-|-------|-------|
-| `{service="tournament-service"}` | Both replicas of one service |
-| `{service="tournament-service", replica="2"}` | One replica |
-| `{service="api-gateway"} \|= "Retrying"` | The retries of step 4 |
-| `{service=~".+"} \| traceId="<trace id>"` | Every line of one request, in every service it crossed |
+From a trace back to the logs: click a span → **Related logs**. A Loki pane
+opens beside the trace with every line of that trace, from every service it
+crossed.
 
-Click a line that has a `traceId`, here or in the dashboard's *Logs* panel:
-its details show **Links → traceId → Ver traza en Tempo**, which opens that
-trace.
+"Trazas recientes": click an id in the "Traza" column to open it. A new trace
+takes 10-17 s to show up here (Tempo search; measured 12 s), while **Ver
+traza en Tempo** from a log line is immediate.
 
-**Traces**: four ways to open one.
-
-1. Dashboard → *Trazas* → "Trazas recientes": click an id in *Traza*. The
-   trace opens in Explore.
-2. A log line → **Ver traza en Tempo**, as above.
-3. Grafana → Explore → **Tempo** → **TraceQL**: paste a trace id, or a query
-   such as `{ resource.service.name = "tournament-service" } with
-   (most_recent=true)`, then **Run query** and click a *Trace ID*: the trace
-   opens in a pane on the right. Without `with (most_recent=true)` Tempo
-   returns the first traces it finds, not the newest.
-4. Grafana → Drilldown → **Traces**: span rate, errors and duration, per
-   service under **Breakdown**. The **Traces** tab lists the traces behind
-   the graphs; click a *Trace Name* to open it in a side panel. Keep the
-   default *Last 30 minutes*: these TraceQL metrics come from the
-   metrics-generator's recent blocks (`infra/tempo/tempo.yml`), and older
-   data is not kept for them.
+Grafana → **Drilldown** → **Traces**: span rate, errors and duration, per
+service under **Breakdown**. The **Traces** tab lists the traces behind the
+graphs: the 6 s retried GETs and the 8 s fallback of step 4 stand out by
+duration. Click a trace name to open it in a side panel; **Related logs**
+there opens Logs Drilldown filtered by that trace. Keep the default "Last 30
+minutes": these TraceQL metrics come from the metrics-generator's recent
+blocks (`infra/tempo/tempo.yml`), and older data is not kept for them.
 
 Actuator calls (scrapes, health checks) and the gateway's Eureka polling are
-not traced, so every trace is a real request or event. Worth opening:
+not traced, so every trace is a real request or event.
 
-- A retried GET from step 4: paste its trace id. The 3 s gateway span has two
-  `http get` children: the 2 s connect timeout on the dead replica and, after
-  the 1 s back-off, the call the live replica answered.
-- A match result, across RabbitMQ. Pick an active tournament, then one of its
-  matches, then load a result (or do it from the frontend, step 5 of the
-  [vertical slice](#vertical-slice)):
-
-  ```bash
-  curl -s -H "Authorization: Bearer $TOKEN" 'http://localhost:8080/api/tournaments?status=ACTIVE' | jq -r '.content[] | "\(.id) \(.name)"'
-  curl -s -H "Authorization: Bearer $TOKEN" http://localhost:8080/api/tournaments/<tournamentId>/matches | jq -r '.[] | "\(.id) \(.homeTeam.name) - \(.awayTeam.name) \(.status)"'
-  curl -s -o /dev/null -w '%{http_code}\n' -X PUT http://localhost:8080/api/matches/<matchId>/result -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' -d '{"homeScore":2,"awayScore":1}'
-  docker logs --since 1m sg-api-gateway 2>&1 | jq -rR 'fromjson? | select(.message | contains("/result")) | .traceId + "  " + .message'
-  ```
-
-  The `PUT` answers `204`; the last command prints its trace id. Paste it in
-  Tempo, or query `{ name = "http put /api/matches/{id}/result" }` and open
-  the newest trace. The waterfall: api-gateway → tournament-service (`http
-  put /api/matches/{id}/result`) → `scoregrid.events/match.finished send` →
-  score-service `score.match-finished receive` → its `http get` to
-  prediction-service for the predictions → `score.calculated send`. A second
-  branch, `match.updated`, reaches prediction-service's match cache. **Node
-  graph** draws the same hops as boxes. Click a span, then **Related logs**:
-  the log lines of that trace from all four services, next to the trace.
-
-### Reset when something is left half-done
+## If something is left half-done
 
 ```bash
-docker compose up -d
+docker compose --profile observability up -d
 ```
 
-Starts every stopped or killed container (prediction-service after step 5, a
-replica after step 4) and waits until they are healthy. The fallback is
-`scripts/failover-demo.sh restore`, which also waits until Eureka lists two
-tournament replicas and one prediction-service.
+Starts every container that is stopped or killed. Then reload Eureka until
+`TOURNAMENT-SERVICE` shows `UP (2)` and `PREDICTION-SERVICE` `UP (1)`. The
+fallback is `scripts/failover-demo.sh restore`, which also waits for those
+registrations.
 
-A result loaded while prediction-service is stopped is lost for scoring:
-score-service consumes `match.finished`, cannot read the predictions,
-retries three times and dead-letters the event to
-`score.match-finished.dlq`. Restart prediction-service first. To check, open
-<http://localhost:15672> → **Queues** → `score.match-finished.dlq`
-(`RABBITMQ_USER` / `RABBITMQ_PASSWORD` from `.env`, `scoregrid` / `scoregrid`
-when unset), or:
-
-```bash
-docker exec sg-rabbitmq rabbitmqctl list_queues --quiet name messages
-```
-
-To replay, send the same result again once prediction-service is up
-(rescoring replaces the match score, so nothing is counted twice), then empty
-the dead-letter queue:
-
-```bash
-docker exec sg-rabbitmq rabbitmqctl purge_queue score.match-finished.dlq
-```
+A result loaded while prediction-service was stopped is lost for scoring:
+score-service retries three times and dead-letters the event. RabbitMQ →
+**Queues and Streams** → `score.match-finished.dlq` shows 1 message. Once
+prediction-service is up, send the same result again with **Corregir
+resultado** (rescoring replaces, so nothing is counted twice), then empty the
+queue from its page: **Purge** → **Purge Messages**.
 
 ## Failover
 
-`scripts/failover-demo.sh` drives every step below against the local stack and
-prints the numbers. It refuses to run unless the gateway, Eureka and
-Prometheus URLs are `localhost`/`127.0.0.1` and Docker is the local daemon. It
-logs in as the admin from `.env` without printing the password. Read the
-header of the script for the traps (SIGTERM vs SIGKILL, restart delays) and
-for what it does not do.
-
-tournament-service runs two replicas by default (`deploy.replicas` in
-`compose.yaml`), so the commands above already start the failover pair;
-`scripts/smoke.sh` warns if it has fewer.
-
-```bash
-scripts/failover-demo.sh status     # Eureka: 2 tournament instances; Prometheus: one target per replica
-```
-
-**prediction-service stays at one replica.** Its match cache is fed by the
-`prediction.match-cache` queue, and replicas of one service share a queue:
-RabbitMQ delivers each match event to only one of them. With two replicas a
-`match.updated` (a postponement, a moved kickoff) can reach the replica that
-never cached the match, while the one that did keeps accepting predictions it
-should lock. The fix is a queue per replica, which changes the RabbitMQ
-topology frozen in `docs/contracts.md`; it needs the three owners' agreement,
-so until then it runs one replica. Failover is shown on
-tournament-service, which has no such cache, and `service-down` still shows
-the gateway's breaker with the single prediction replica stopped.
-
-| Command | What happens | What to show |
-|---------|--------------|--------------|
-| `instance` | `GET /api/tournaments` every 0.5 s; one tournament replica is stopped (SIGTERM), restarted, then killed (SIGKILL) and restarted | Zero failed GETs. In both cases the gateway retries a GET that cannot connect to the dead replica on the other one. After SIGTERM the replica refuses connections at once and leaves Eureka, so the window is short; after SIGKILL the dead address stays cached for 30-40 s and latency spikes to a few seconds |
-| `service-down` | prediction-service stopped; `GET /api/predictions/me` twelve times | Each call is a fast `503 DOWNSTREAM_UNAVAILABLE` envelope; after four failures the breaker opens and calls are not even attempted. Then the time to the first `2xx` after restart |
-| `downstream` | One tournament replica killed while a participant submits predictions | Every prediction accepted. Prediction Service's call to Tournament Service spends at most one connect timeout on the dead replica, then its retry goes to the live one |
-| `restore` | `docker compose --profile observability up -d`, then waits for two tournament replicas and one prediction replica in Eureka | Back to the starting point |
-
-How it works, for the questions:
+How steps 4 and 5 work, for the questions.
 
 - **Gateway** (`services/api-gateway`): every route has a Resilience4J
-  `CircuitBreaker` filter whose fallback answers `503` with the contract
-  envelope, and a `RetryReads` filter that retries a `GET` whose connection
-  could not be opened (refused, no route to host, connect timeout), up to
-  three attempts, 1 s apart. The `lb://` resolution runs inside the retry, so
-  the next attempt goes to another replica. A read timeout is not retried:
-  the replica has the request and is slow, and a second read would double its
-  load. Writes are never retried: a timed-out `POST` may already have been
-  applied. Each retry logs one `WARN` line (`Retrying GET <path> on route
-  <route> ...`), visible in Loki. Proxy timeouts: 2 s connect, 5 s read
-  (`SCOREGRID_GATEWAY_CONNECT_TIMEOUT`, `SCOREGRID_GATEWAY_READ_TIMEOUT`);
-  breaker time limit 8 s (2 s dead connect + 1 s back-off + 5 s read).
+  breaker whose fallback answers `503 DOWNSTREAM_UNAVAILABLE` in the contract
+  envelope. It opens at a 50% failure rate over the last 10 calls (at least
+  4) and stays open 10 s. A `RetryReads` filter retries a `GET` whose
+  connection could not be opened (refused, no route, connect timeout), up to
+  three attempts 1 s apart; `lb://` is resolved inside the retry, so the next
+  attempt can go to another replica. A read timeout is not retried (the
+  replica has the request and a second one doubles its load), and writes are
+  never retried (a timed-out `POST` may already be applied). Proxy timeouts:
+  2 s connect, 5 s read (`SCOREGRID_GATEWAY_CONNECT_TIMEOUT`,
+  `SCOREGRID_GATEWAY_READ_TIMEOUT`); breaker time limit 8 s (2 s dead
+  connect + 1 s back-off + 5 s read).
+- **Known limit**: the LoadBalancer's turn order is shared by all requests,
+  so while overlapping requests are in flight one GET can meet the dead
+  replica on all three attempts and get a `503` at 8 s. It lasts only until
+  Eureka evicts the replica.
 - **Service to service** (`prediction-service` → `tournament-service`,
   `score-service` → `prediction-service`): a `@LoadBalanced` RestClient with
-  a 500 ms connect and 1.5 s read timeout
-  (`SCOREGRID_CLIENTS_CONNECT_TIMEOUT`, `SCOREGRID_CLIENTS_READ_TIMEOUT`).
-  Each request gets up to three attempts (200 ms, then 400 ms back-off),
-  every attempt through the LoadBalancer again, inside a breaker whose time
-  limit is 2.2 s (0.5 s dead connect + 0.2 s back-off + 1.5 s read). A
-  prediction on a match not yet cached makes three such requests in a row;
-  with one tournament replica dead that is about 2.2 s, well under the
-  gateway's 5 s. A `4xx` from Tournament
-  Service (an unknown match) is neither retried nor counted by the breaker,
-  so made-up match ids cannot open it. Each retry logs one `WARN` line.
+  a 500 ms connect and 1.5 s read timeout (`SCOREGRID_CLIENTS_CONNECT_TIMEOUT`,
+  `SCOREGRID_CLIENTS_READ_TIMEOUT`). Each request gets up to three attempts
+  (200 ms, then 400 ms back-off), every attempt through the LoadBalancer
+  again, inside a breaker with a 2.2 s limit. A `4xx` from tournament-service
+  (an unknown match) is neither retried nor counted by the breaker.
   `score-service` → `auth-service` (usernames for the rankings) has the same
-  timeouts but no breaker or retry: if auth-service is down, rankings show
-  user ids instead of names after at most one timeout. Known limit: if
-  Tournament Service is slow on every request rather than dead, the three
-  requests can pass 5 s; the gateway then answers `503`
-  although the prediction was saved, and a resend gets `409`. Closing that
-  needs a deadline for the whole use case or an idempotency key.
+  timeouts but no breaker or retry: with auth-service down, rankings show
+  user ids instead of names. If tournament-service is slow on every request
+  rather than dead, a prediction's three calls can pass the gateway's 5 s:
+  the gateway answers `503` although the prediction was saved, and a resend
+  gets `409`.
 - **Discovery speed** (`docker` profile of each service): 5 s heartbeats,
-  registry fetches and LoadBalancer cache, 5 s eviction and response cache on
-  the Eureka server. A stopped tournament replica (SIGTERM) deregisters and,
-  with `server.shutdown: immediate`, refuses new connections at once, so a
-  GET that still picks it fails to connect and is retried on the other
-  replica. Graceful shutdown would pause the connector instead, and new
-  connections would hang until the gateway's 5 s read timeout, which is not
-  retried. A killed one (SIGKILL) stays routable until its lease expires,
-  about 30-40 s.
-- **Breaker state in Prometheus**:
-  `resilience4j_circuitbreaker_state{application="api-gateway", state="open"}`
-  goes to 1 for the downstream that is down while `service-down` runs.
-- **Security at the edge**: the gateway validates the token issuer, so an
-  internal service token (no `iss`) is refused with a `401` envelope.
-
-Measured on the local stack (2026-10-05, after `docker compose up -d --build`):
-
-- `instance`, twice: 230 and 191 GETs, zero failures. Max latency 2.0 s and
-  3.0 s while the SIGTERMed replica was down, 6.0 s both times after SIGKILL
-  (a GET that hit the dead address twice: 2 s connect timeout + 1 s back-off,
-  twice). `docker stop` returns in about 4.5 s. In Loki,
-  `{container="sg-api-gateway"} |= "Retrying GET"` shows the retries: 5-11 s
-  of them after SIGTERM (`HttpHostConnectException`, then a
-  `ConnectTimeoutException` once the container is gone), 30-35 s of
-  `ConnectTimeoutException` after SIGKILL.
-- `downstream`: 6/6 predictions accepted in 0.49-1.62 s, typically 0.72 s
-  (0.5 s connect timeout on the dead replica + 0.2 s back-off).
-- `service-down`: twelve `503` envelopes in 3-26 ms (the first one 26 ms),
-  first `2xx` 17 s after restart. The gateway log gives the cause of each:
-  "Unable to find instance" first, then the open breaker.
-- "Servicios saludables": 6; still 6 with one tournament replica stopped; 5
-  within 20 s of stopping prediction-service.
-- Twelve predictions on unknown match ids: twelve `404 NOT_FOUND`, and
-  Prediction Service's `tournamentClient` breaker stays closed (0 failed, 12
-  ignored calls).
+  registry fetches and LoadBalancer cache; 5 s eviction and response cache on
+  the Eureka server. A stopped replica (SIGTERM) deregisters and, with
+  `server.shutdown: immediate`, refuses new connections at once, so a GET
+  that still picks it is retried on the other replica. A killed one
+  (SIGKILL) stays routable until its lease expires and the clients' caches
+  refresh: 25-35 s.
+- **prediction-service stays at one replica.** Its match cache is fed by the
+  `prediction.match-cache` queue, and replicas of one service share a queue:
+  RabbitMQ delivers each match event to only one of them. With two replicas a
+  `match.updated` (a postponement, a moved kickoff) could reach the replica
+  that never cached the match, while the one that did keeps accepting
+  predictions it should lock. The fix is a queue per replica, which changes
+  the RabbitMQ topology frozen in `docs/contracts.md` and needs the three
+  owners' agreement. Failover is shown on tournament-service, which has no
+  such cache; step 5 shows the breaker with the single prediction replica
+  stopped.
